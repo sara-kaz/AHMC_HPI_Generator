@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, ChevronUp, Loader2, Trash2, RefreshCw } from 'lucide-react'
-import { casesApi } from '../api/client'
+import { ArrowLeft, ChevronDown, ChevronUp, Loader2, Trash2, RefreshCw, Pencil, Check, X } from 'lucide-react'
+import { casesApi, getApiErrorMessage } from '../api/client'
 import { StructuredOutput } from '../components/StructuredOutput'
 import type { Case } from '../types'
 
@@ -13,6 +13,11 @@ export function CaseDetail() {
   const [notesOpen, setNotesOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [regenerating, setRegenerating] = useState(false)
+  const [regenError, setRegenError] = useState('')
+  const [titleEditing, setTitleEditing] = useState(false)
+  const [titleDraft, setTitleDraft] = useState('')
+  const [titleSaving, setTitleSaving] = useState(false)
+  const [titleError, setTitleError] = useState('')
 
   useEffect(() => {
     casesApi.get(Number(id)).then(setCase).finally(() => setLoading(false))
@@ -25,12 +30,48 @@ export function CaseDetail() {
     navigate('/')
   }
 
+  async function handleSaveTitle() {
+    const t = titleDraft.trim()
+    if (!t) {
+      setTitleError('Case title cannot be empty.')
+      return
+    }
+    setTitleError('')
+    setTitleSaving(true)
+    try {
+      const updated = await casesApi.update(Number(id), { title: t })
+      setCase(updated)
+      setTitleEditing(false)
+    } catch (e: unknown) {
+      setTitleError(getApiErrorMessage(e))
+    } finally {
+      setTitleSaving(false)
+    }
+  }
+
+  function startTitleEdit() {
+    if (case_) {
+      setTitleDraft(case_.title)
+      setTitleError('')
+      setTitleEditing(true)
+    }
+  }
+
+  function cancelTitleEdit() {
+    setTitleEditing(false)
+    setTitleError('')
+    if (case_) setTitleDraft(case_.title)
+  }
+
   async function handleRegenerate() {
     if (!confirm('Regenerate will overwrite the current output. Continue?')) return
+    setRegenError('')
     setRegenerating(true)
     try {
       const updated = await casesApi.generate(Number(id))
       setCase(updated)
+    } catch (e: unknown) {
+      setRegenError(getApiErrorMessage(e))
     } finally {
       setRegenerating(false)
     }
@@ -72,11 +113,63 @@ export function CaseDetail() {
       </div>
 
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-slate-900">{case_.title}</h1>
+        <div className="flex items-start gap-2">
+          {titleEditing ? (
+            <div className="flex-1 min-w-0 space-y-2">
+              <input
+                value={titleDraft}
+                onChange={e => setTitleDraft(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter') void handleSaveTitle()
+                  if (e.key === 'Escape') cancelTitleEdit()
+                }}
+                className="w-full text-2xl font-bold text-slate-900 border border-blue-300 rounded-xl px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-400 bg-white"
+                autoFocus
+                disabled={titleSaving}
+              />
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handleSaveTitle()}
+                  disabled={titleSaving}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-blue-600 text-white text-xs font-medium rounded-lg hover:bg-blue-700 disabled:opacity-60"
+                >
+                  {titleSaving ? <Loader2 size={12} className="animate-spin" /> : <Check size={12} />}
+                  Save title
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelTitleEdit}
+                  disabled={titleSaving}
+                  className="flex items-center gap-1 px-3 py-1.5 bg-slate-100 text-slate-600 text-xs font-medium rounded-lg hover:bg-slate-200 disabled:opacity-60"
+                >
+                  <X size={12} /> Cancel
+                </button>
+              </div>
+              {titleError && <p className="text-xs text-red-600">{titleError}</p>}
+            </div>
+          ) : (
+            <>
+              <h1 className="text-2xl font-bold text-slate-900 flex-1 min-w-0">{case_.title}</h1>
+              <button
+                type="button"
+                onClick={startTitleEdit}
+                className="mt-1.5 p-1.5 rounded-lg text-slate-400 hover:text-slate-700 hover:bg-slate-100 transition-colors shrink-0"
+                title="Edit title"
+              >
+                <Pencil size={18} />
+              </button>
+            </>
+          )}
+        </div>
         <p className="text-xs text-slate-400 mt-1">
           Created {new Date(case_.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
         </p>
       </div>
+
+      {regenError && (
+        <div className="mb-4 bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">{regenError}</div>
+      )}
 
       {/* Original Notes Accordion */}
       <div className="bg-white rounded-2xl border border-slate-200 mb-6 overflow-hidden">

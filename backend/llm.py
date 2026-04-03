@@ -1,11 +1,58 @@
 import json
 import os
+from typing import Optional
+
 import anthropic
 from dotenv import load_dotenv
 
 load_dotenv()
 
-client = anthropic.Anthropic(api_key=os.getenv("ANTHROPIC_API_KEY"))
+_DEFAULT_MODEL = "claude-sonnet-4-6"
+
+
+def _normalize_api_key(raw: Optional[str]) -> str:
+    key = (raw or "").strip()
+    if len(key) >= 2 and key[0] == key[-1] and key[0] in "\"'":
+        key = key[1:-1].strip()
+    return key
+
+
+def _get_client() -> anthropic.Anthropic:
+    key = _normalize_api_key(os.getenv("ANTHROPIC_API_KEY"))
+    if not key:
+        raise ValueError(
+            "ANTHROPIC_API_KEY is not set. Add it to backend/.env and restart the API server."
+        )
+    return anthropic.Anthropic(api_key=key)
+
+
+def _assistant_text(response: anthropic.types.Message) -> str:
+    parts = []
+    for block in response.content:
+        if getattr(block, "type", None) == "text":
+            parts.append(block.text)
+    if not parts:
+        raise ValueError("Model returned no text content blocks; cannot parse JSON.")
+    return "\n".join(parts).strip()
+
+
+def _parse_llm_json(raw: str) -> dict:
+    s = raw.strip()
+    if s.startswith("```"):
+        s = s.split("```", 2)[1]
+        if s.startswith("json"):
+            s = s[4:]
+        s = s.rsplit("```", 1)[0].strip()
+    try:
+        result = json.loads(s)
+    except json.JSONDecodeError:
+        start, end = s.find("{"), s.rfind("}")
+        if start < 0 or end <= start:
+            raise
+        result = json.loads(s[start : end + 1])
+    if not isinstance(result, dict):
+        raise ValueError("Model output JSON was not an object.")
+    return result
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MCG Admission Criteria (condensed from provided guideline)
@@ -147,7 +194,7 @@ OUTPUT FORMAT — respond ONLY with valid JSON, no prose before or after:
 """
 
 
-def generate_structured_output(er_note: str | None, hp_note: str | None) -> dict:
+def generate_structured_output(er_note: Optional[str], hp_note: Optional[str]) -> dict:
     """
     Call Claude claude-sonnet-4-6 with few-shot prompt to generate structured clinical output.
     Returns parsed JSON dict.
@@ -166,23 +213,32 @@ def generate_structured_output(er_note: str | None, hp_note: str | None) -> dict
         + "\n\n".join(parts)
     )
 
-    response = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=2048,
-        system=SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": user_message}],
-    )
+    model = os.getenv("ANTHROPIC_MODEL", _DEFAULT_MODEL).strip() or _DEFAULT_MODEL
+    client = _get_client()
 
-    raw = response.content[0].text.strip()
+    try:
+        response = client.messages.create(
+            model=model,
+            max_tokens=2048,
+            system=SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": user_message}],
+        )
+    except anthropic.APIStatusError as e:
+        detail = e.message
+        if isinstance(e.body, dict):
+            err = e.body.get("error")
+            if isinstance(err, dict) and err.get("message"):
+                detail = f"{detail} — {err['message']}"
+        msg = f"Anthropic API ({e.status_code}): {detail}"
+        if e.status_code == 401:
+            msg += (
+                " — Update ANTHROPIC_API_KEY in backend/.env with a key from "
+                "https://console.anthropic.com/settings/keys (no quotes around the value; restart uvicorn after saving)."
+            )
+        raise RuntimeError(msg) from e
 
-    # Strip markdown code fences if present
-    if raw.startswith("```"):
-        raw = raw.split("```", 2)[1]
-        if raw.startswith("json"):
-            raw = raw[4:]
-        raw = raw.rsplit("```", 1)[0].strip()
-
-    result = json.loads(raw)
+    raw = _assistant_text(response)
+    result = _parse_llm_json(raw)
 
     # Normalize disposition value
     disp = result.get("disposition_recommendation", "Unknown")

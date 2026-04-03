@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Loader2, Sparkles, FileText, ArrowLeft } from 'lucide-react'
-import { casesApi } from '../api/client'
+import { casesApi, getApiErrorMessage } from '../api/client'
 
 const CASE_B_ER = `PHYSICIAN CHART CHIEF COMPLAINT: Diabetes/Hyperglylcemia
 HISTORY OF PRESENT ILLNESS: 34 year old female who presents with a chief complaint of Diabetes/Hyperglylcemia. 34 yof hx of T1DM here with AMS in the setting of elevated blood glucose - Insulin dependent - AO2.
@@ -37,8 +37,7 @@ export function NewCase() {
       const generated = await casesApi.generate(created.id)
       navigate(`/cases/${generated.id}`)
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'Generation failed. Check your API key.'
-      setError(msg)
+      setError(getApiErrorMessage(e))
     } finally {
       setLoading(false)
     }

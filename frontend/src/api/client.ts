@@ -1,9 +1,29 @@
-import axios from 'axios'
+import axios, { type AxiosError } from 'axios'
 import type { Case, CaseCreate, CaseUpdate, StructuredOutput } from '../types'
 
 const BASE = import.meta.env.VITE_API_URL || ''
 
 const api = axios.create({ baseURL: BASE })
+
+/** FastAPI often returns `{ detail: string | object }` — surface that instead of a bare HTTP status. */
+export function getApiErrorMessage(err: unknown): string {
+  if (axios.isAxiosError(err)) {
+    const ax = err as AxiosError<{ detail?: unknown }>
+    const detail = ax.response?.data?.detail
+    if (typeof detail === 'string') return detail
+    if (Array.isArray(detail)) {
+      const parts = detail.map((item: unknown) =>
+        typeof item === 'object' && item !== null && 'msg' in item
+          ? String((item as { msg: unknown }).msg)
+          : JSON.stringify(item)
+      )
+      return parts.join('; ')
+    }
+    if (detail != null) return JSON.stringify(detail)
+  }
+  if (err instanceof Error) return err.message
+  return 'Request failed.'
+}
 
 export const casesApi = {
   list: () => api.get<Case[]>('/api/cases').then(r => r.data),
