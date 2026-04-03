@@ -53,7 +53,7 @@ A full-stack web application that transforms unstructured clinical notes (ER not
 |-------|--------|-----|
 | LLM | Claude claude-sonnet-4-6 | Best-in-class clinical reasoning, structured JSON output, large context for few-shot prompting |
 | Backend | FastAPI (Python) | Native async, Pydantic validation, auto OpenAPI docs, natural fit for Anthropic Python SDK |
-| Database | SQLite (SQLAlchemy) | Zero-config for dev, easy swap to PostgreSQL for prod |
+| Database | SQLite (SQLAlchemy) | Zero-config for dev; structured LLM fields stored relationally (see below) |
 | Frontend | React + Vite + TypeScript | Fast build, strong typing for structured medical data |
 | Styling | Tailwind CSS v4 | Rapid UI iteration, no runtime overhead |
 | HTTP Client | axios | Surfaces FastAPI `detail` in the UI on errors |
@@ -123,6 +123,20 @@ The Revised HPI follows a 6-sentence narrative arc proven in Case A:
 
 ---
 
+## Relational storage for structured output
+
+Generated clinical structure is stored in **normalized tables** (not only as JSON on `cases`):
+
+| Table | Purpose |
+|-------|---------|
+| `cases` | Case metadata, raw ER/H&P notes, generation status, `edited_fields`, and a **JSON cache** of `structured_output` kept in sync for exports and compatibility |
+| `clinical_structured_outputs` | **One row per case**: `chief_complaint`, `hpi_summary`, `disposition_recommendation`, `revised_hpi` |
+| `clinical_list_items` | **One row per list entry**: `category` (`key_findings`, `suspected_conditions`, `admission_criteria_met`, `uncertainties`), `sort_order`, `value` |
+
+Foreign keys use **`ON DELETE CASCADE`**: deleting a case removes its structured rows. SQLite runs with **`PRAGMA foreign_keys=ON`**.
+
+On startup, any legacy case that still has JSON but no relational rows is **migrated automatically** into these tables.
+
 ## Case identity and organization
 
 - Each case has a numeric **database ID** shown on the list and detail screens (`Case ID` / `ID n`).
@@ -151,6 +165,7 @@ The system distinguishes AI-generated vs. user-edited content:
 - **Python 3.9+** (3.11+ recommended)
 - **Node.js 18+**
 - **Anthropic** API key with billing/credits for the Messages API
+- *(Optional)* A **SQLite viewer** if you want to inspect `cases.db` directly — see [Viewing the database](#viewing-the-database-optional) below (not required to run the app)
 
 ### Backend
 
@@ -180,6 +195,19 @@ API docs available at http://localhost:8000/docs
 | `ALLOWED_ORIGINS` | No | Comma-separated CORS origins; default includes `http://localhost:5173` and `http://localhost:3000`. |
 
 A **401** or **credit balance** message from Anthropic is a key or billing issue, not an application bug. Restart Uvicorn after changing `.env`.
+
+### Viewing the database (optional)
+
+The default database is **SQLite** at **`backend/cases.db`** (same folder you run `uvicorn` from, unless `DATABASE_URL` points elsewhere). Nothing extra is installed by this repo to browse it—you use any SQLite-capable tool:
+
+| Tool | Requirement | Notes |
+|------|-------------|--------|
+| **sqlite3** (terminal) | Usually preinstalled on macOS; otherwise your OS/package manager | `cd backend && sqlite3 cases.db` → `.tables` → `SELECT * FROM cases LIMIT 5;` → `.quit` |
+| **[DB Browser for SQLite](https://sqlitebrowser.org/)** | Free desktop app | Open `cases.db`, use **Browse Data** on `cases`, `clinical_structured_outputs`, `clinical_list_items` |
+| **TablePlus**, **DBeaver**, **DataGrip** | Install separately | Add a SQLite connection to `backend/cases.db` |
+| **VS Code / Cursor** | Install a marketplace extension such as **SQLite Viewer** | Open `cases.db` from the workspace |
+
+**Tip:** If the API is writing to the DB, some GUI tools may show a locked file—open read-only or pause Uvicorn briefly if you run into locking issues.
 
 ### Frontend
 
@@ -275,10 +303,11 @@ App available at http://localhost:5173. In development, `vite.config.ts` proxies
 ```
 ahmc-hpi/
 ├── backend/
-│   ├── main.py          # FastAPI app + all routes
-│   ├── models.py        # SQLAlchemy ORM models
-│   ├── database.py      # DB engine + session + init
-│   ├── llm.py           # Claude integration, prompt, JSON parse + repair
+│   ├── main.py             # FastAPI app + all routes
+│   ├── models.py           # Case + relational clinical_* models
+│   ├── clinical_storage.py # Persist / load structured output (relational + JSON cache)
+│   ├── database.py         # Engine, SQLite FK pragma, init + legacy migration
+│   ├── llm.py              # Claude integration, prompt, JSON parse + repair
 │   ├── requirements.txt
 │   └── .env.example
 ├── frontend/

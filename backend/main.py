@@ -9,6 +9,11 @@ from dotenv import load_dotenv
 from database import get_db, init_db
 from models import Case
 from llm import generate_structured_output
+from clinical_storage import (
+    batch_structured_outputs,
+    load_structured_output,
+    persist_structured_output,
+)
 
 load_dotenv()
 
@@ -68,6 +73,46 @@ class CaseResponse(BaseModel):
         from_attributes = True
 
 
+def _case_response(db: Session, case: Case) -> CaseResponse:
+    structured = load_structured_output(db, case)
+    return CaseResponse(
+        id=case.id,
+        title=case.title,
+        er_note=case.er_note,
+        hp_note=case.hp_note,
+        structured_output=structured,
+        edited_fields=case.edited_fields or [],
+        generation_status=case.generation_status,
+        generation_error=case.generation_error,
+        created_at=case.created_at,
+        updated_at=case.updated_at,
+    )
+
+
+def _cases_response(db: Session, cases: List[Case]) -> List[CaseResponse]:
+    batch = batch_structured_outputs(db, [c.id for c in cases])
+    out: List[CaseResponse] = []
+    for case in cases:
+        structured = batch.get(case.id)
+        if structured is None:
+            structured = load_structured_output(db, case)
+        out.append(
+            CaseResponse(
+                id=case.id,
+                title=case.title,
+                er_note=case.er_note,
+                hp_note=case.hp_note,
+                structured_output=structured,
+                edited_fields=case.edited_fields or [],
+                generation_status=case.generation_status,
+                generation_error=case.generation_error,
+                created_at=case.created_at,
+                updated_at=case.updated_at,
+            )
+        )
+    return out
+
+
 class GenerateRequest(BaseModel):
     er_note: Optional[str] = None
     hp_note: Optional[str] = None
@@ -108,13 +153,13 @@ def create_case(payload: CaseCreate, db: Session = Depends(get_db)):
     db.add(case)
     db.commit()
     db.refresh(case)
-    return case
+    return _case_response(db, case)
 
 
 @app.get("/api/cases", response_model=List[CaseResponse])
 def list_cases(db: Session = Depends(get_db)):
     cases = db.query(Case).order_by(Case.created_at.desc()).all()
-    return cases
+    return _cases_response(db, cases)
 
 
 @app.get("/api/cases/{case_id}", response_model=CaseResponse)
@@ -122,7 +167,7 @@ def get_case(case_id: int, db: Session = Depends(get_db)):
     case = db.query(Case).filter(Case.id == case_id).first()
     if not case:
         raise HTTPException(status_code=404, detail="Case not found")
-    return case
+    return _case_response(db, case)
 
 
 @app.post("/api/cases/{case_id}/generate", response_model=CaseResponse)
@@ -139,7 +184,7 @@ def generate_for_case(case_id: int, db: Session = Depends(get_db)):
 
     try:
         result = generate_structured_output(case.er_note, case.hp_note)
-        case.structured_output = result
+        persist_structured_output(db, case.id, result)
         case.generation_status = "completed"
         case.edited_fields = []
         case.generation_error = None
@@ -151,7 +196,7 @@ def generate_for_case(case_id: int, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(case)
-    return case
+    return _case_response(db, case)
 
 
 @app.post("/api/generate", response_model=dict)
@@ -175,13 +220,13 @@ def update_case(case_id: int, payload: CaseUpdate, db: Session = Depends(get_db)
     if payload.title is not None:
         case.title = payload.title
     if payload.structured_output is not None:
-        case.structured_output = payload.structured_output
+        persist_structured_output(db, case.id, payload.structured_output)
     if payload.edited_fields is not None:
         case.edited_fields = payload.edited_fields
 
     db.commit()
     db.refresh(case)
-    return case
+    return _case_response(db, case)
 
 
 @app.delete("/api/cases/{case_id}", status_code=204)
