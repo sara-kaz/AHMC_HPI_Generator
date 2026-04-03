@@ -27,7 +27,7 @@ A full-stack web application that transforms unstructured clinical notes (ER not
 │  Python 3.9+ · Uvicorn · SQLAlchemy · SQLite                    │
 │                                                                 │
 │  Routes:                                                        │
-│  POST /api/cases          — create case (optional body `id`)   │
+│  POST /api/cases          — create case (optional body `id`)    │
 │  POST /api/cases/:id/generate — call LLM, store output          │
 │  PUT  /api/cases/:id      — title, structured_output, edits     │
 │  GET  /api/cases          — list all cases                      │
@@ -257,6 +257,7 @@ App available at http://localhost:5173. In development, `vite.config.ts` proxies
 |------|---------|
 | Claude Code (claude-sonnet-4-6) | Full-stack implementation, prompt design, architecture |
 | Claude claude-sonnet-4-6 (runtime) | Clinical note analysis and HPI generation |
+| Cursor |Frontend Debugging & Feature Addition|
 
 ### What was AI-assisted
 
@@ -292,9 +293,8 @@ App available at http://localhost:5173. In development, `vite.config.ts` proxies
 2. **Multi-case learning** — store approved human-edited outputs as additional few-shot examples for future generations
 3. **PDF/DOCX upload** — parse uploaded clinical note files directly rather than requiring paste
 4. **Diff viewer** — side-by-side comparison between original AI output and user edits
-5. **Audit trail** — timestamp each field edit for compliance purposes
-6. **Authentication** — user accounts with case ownership
-7. **Export** — download Revised HPI as Word document
+5. **Authentication** — user accounts with case ownership
+6. **Export** — download Revised HPI as Word document
 
 ---
 
