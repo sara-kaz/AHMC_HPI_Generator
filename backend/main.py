@@ -1,7 +1,7 @@
 from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from typing import Optional, List, Any
 import os
 from dotenv import load_dotenv
@@ -39,6 +39,11 @@ class CaseCreate(BaseModel):
     title: str
     er_note: Optional[str] = None
     hp_note: Optional[str] = None
+    id: Optional[int] = Field(
+        default=None,
+        gt=0,
+        description="Optional manual case ID. Must be unique; omit for auto-assigned ID.",
+    )
 
 
 class CaseUpdate(BaseModel):
@@ -79,12 +84,27 @@ def health():
 
 @app.post("/api/cases", response_model=CaseResponse, status_code=201)
 def create_case(payload: CaseCreate, db: Session = Depends(get_db)):
-    case = Case(
-        title=payload.title,
-        er_note=payload.er_note,
-        hp_note=payload.hp_note,
-        generation_status="pending",
-    )
+    if payload.id is not None:
+        existing = db.query(Case).filter(Case.id == payload.id).first()
+        if existing:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Case ID {payload.id} is already in use. Choose another ID or leave blank for auto-assign.",
+            )
+        case = Case(
+            id=payload.id,
+            title=payload.title,
+            er_note=payload.er_note,
+            hp_note=payload.hp_note,
+            generation_status="pending",
+        )
+    else:
+        case = Case(
+            title=payload.title,
+            er_note=payload.er_note,
+            hp_note=payload.hp_note,
+            generation_status="pending",
+        )
     db.add(case)
     db.commit()
     db.refresh(case)

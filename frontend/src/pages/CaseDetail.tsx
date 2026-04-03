@@ -163,6 +163,8 @@ export function CaseDetail() {
           )}
         </div>
         <p className="text-xs text-slate-400 mt-1">
+          <span className="font-mono text-slate-500">Case ID {case_.id}</span>
+          <span className="mx-1.5 text-slate-300">·</span>
           Created {new Date(case_.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
         </p>
       </div>

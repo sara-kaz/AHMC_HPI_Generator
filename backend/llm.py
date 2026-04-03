@@ -3,11 +3,14 @@ import os
 from typing import Optional
 
 import anthropic
+import json_repair
 from dotenv import load_dotenv
 
 load_dotenv()
 
 _DEFAULT_MODEL = "claude-sonnet-4-6"
+# Long clinical notes + revised_hpi often exceed 2k output tokens; truncated JSON causes parse errors.
+_DEFAULT_MAX_TOKENS = 8192
 
 
 def _normalize_api_key(raw: Optional[str]) -> str:
@@ -36,23 +39,55 @@ def _assistant_text(response: anthropic.types.Message) -> str:
     return "\n".join(parts).strip()
 
 
-def _parse_llm_json(raw: str) -> dict:
+def _strip_markdown_json(raw: str) -> str:
     s = raw.strip()
     if s.startswith("```"):
         s = s.split("```", 2)[1]
         if s.startswith("json"):
             s = s[4:]
         s = s.rsplit("```", 1)[0].strip()
+    return s
+
+
+def _inner_json_object(s: str) -> str:
+    start, end = s.find("{"), s.rfind("}")
+    if start < 0 or end <= start:
+        return s
+    return s[start : end + 1]
+
+
+def _parse_llm_json(raw: str) -> dict:
+    s = _strip_markdown_json(raw)
+    inner = _inner_json_object(s)
+    attempts = []
+    for payload in (inner, s):
+        if payload in attempts:
+            continue
+        attempts.append(payload)
+        try:
+            result = json.loads(payload)
+            if isinstance(result, dict):
+                return result
+        except json.JSONDecodeError:
+            pass
+
     try:
-        result = json.loads(s)
-    except json.JSONDecodeError:
-        start, end = s.find("{"), s.rfind("}")
-        if start < 0 or end <= start:
-            raise
-        result = json.loads(s[start : end + 1])
-    if not isinstance(result, dict):
-        raise ValueError("Model output JSON was not an object.")
-    return result
+        repaired = json_repair.loads(inner)
+        if isinstance(repaired, dict):
+            return repaired
+    except Exception:
+        pass
+    try:
+        repaired = json_repair.loads(s)
+        if isinstance(repaired, dict):
+            return repaired
+    except Exception:
+        pass
+
+    raise ValueError(
+        "Model returned invalid or incomplete JSON (often unescaped quotes or output cut off mid-field). "
+        "Try regenerating, shorten the notes, or raise ANTHROPIC_MAX_TOKENS."
+    )
 
 # ─────────────────────────────────────────────────────────────────────────────
 # MCG Admission Criteria (condensed from provided guideline)
@@ -180,6 +215,12 @@ TRANSFORMATION RULES:
 
 {CASE_A_EXAMPLE}
 
+JSON OUTPUT RULES (required):
+- Respond with exactly one JSON object and nothing else (no markdown fences, no commentary).
+- In every string value, escape internal double-quotes as backslash-quote (\\"). Never leave a string open-ended.
+- Prefer short clause-style sentences in revised_hpi so the object stays valid; avoid pasting raw chart text with quotes inside a JSON string.
+- Include all keys through revised_hpi; the JSON must be complete.
+
 OUTPUT FORMAT — respond ONLY with valid JSON, no prose before or after:
 {{
   "chief_complaint": "...",
@@ -214,12 +255,19 @@ def generate_structured_output(er_note: Optional[str], hp_note: Optional[str]) -
     )
 
     model = os.getenv("ANTHROPIC_MODEL", _DEFAULT_MODEL).strip() or _DEFAULT_MODEL
+    max_tokens = _DEFAULT_MAX_TOKENS
+    raw_mt = os.getenv("ANTHROPIC_MAX_TOKENS", "").strip()
+    if raw_mt:
+        try:
+            max_tokens = max(1024, min(32768, int(raw_mt)))
+        except ValueError:
+            pass
     client = _get_client()
 
     try:
         response = client.messages.create(
             model=model,
-            max_tokens=2048,
+            max_tokens=max_tokens,
             system=SYSTEM_PROMPT,
             messages=[{"role": "user", "content": user_message}],
         )
@@ -238,7 +286,15 @@ def generate_structured_output(er_note: Optional[str], hp_note: Optional[str]) -
         raise RuntimeError(msg) from e
 
     raw = _assistant_text(response)
-    result = _parse_llm_json(raw)
+    try:
+        result = _parse_llm_json(raw)
+    except ValueError as e:
+        if getattr(response, "stop_reason", None) == "max_tokens":
+            raise ValueError(
+                "Model output was truncated (hit max_tokens) before JSON completed. "
+                f"Raise ANTHROPIC_MAX_TOKENS (currently {max_tokens}) or shorten the input notes."
+            ) from e
+        raise
 
     # Normalize disposition value
     disp = result.get("disposition_recommendation", "Unknown")

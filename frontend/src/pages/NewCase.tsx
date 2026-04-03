@@ -22,6 +22,7 @@ ASSESSMENT/PLAN: DKA, pseudohyponatremia, dehydration, AKI, possible gastroenter
 export function NewCase() {
   const navigate = useNavigate()
   const [title, setTitle] = useState('')
+  const [caseIdInput, setCaseIdInput] = useState('')
   const [erNote, setErNote] = useState('')
   const [hpNote, setHpNote] = useState('')
   const [loading, setLoading] = useState(false)
@@ -30,10 +31,25 @@ export function NewCase() {
   async function handleGenerate() {
     if (!title.trim()) { setError('Please enter a case title.'); return }
     if (!erNote.trim() && !hpNote.trim()) { setError('Please paste at least one clinical note.'); return }
+    let manualId: number | undefined
+    const rawId = caseIdInput.trim()
+    if (rawId !== '') {
+      const n = parseInt(rawId, 10)
+      if (!Number.isFinite(n) || n < 1) {
+        setError('Case ID must be a positive whole number (or leave blank for auto-assign).')
+        return
+      }
+      manualId = n
+    }
     setError('')
     setLoading(true)
     try {
-      const created = await casesApi.create({ title, er_note: erNote || undefined, hp_note: hpNote || undefined })
+      const created = await casesApi.create({
+        title,
+        er_note: erNote || undefined,
+        hp_note: hpNote || undefined,
+        ...(manualId !== undefined ? { id: manualId } : {}),
+      })
       const generated = await casesApi.generate(created.id)
       navigate(`/cases/${generated.id}`)
     } catch (e: unknown) {
@@ -77,6 +93,19 @@ export function NewCase() {
             placeholder="e.g. 34F T1DM DKA with AMS"
             className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
           />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Case ID</label>
+          <input
+            value={caseIdInput}
+            onChange={e => setCaseIdInput(e.target.value)}
+            placeholder="Leave blank for auto-assigned ID"
+            inputMode="numeric"
+            autoComplete="off"
+            className="w-full max-w-xs border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-400"
+          />
+          <p className="text-xs text-slate-500 mt-1">Optional. Set a specific numeric ID for this case; it must not already exist.</p>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

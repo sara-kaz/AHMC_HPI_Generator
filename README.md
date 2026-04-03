@@ -15,20 +15,21 @@ A full-stack web application that transforms unstructured clinical notes (ER not
 ┌─────────────────────────────────────────────────────────────────┐
 │                        USER BROWSER                             │
 │  React + Vite + Tailwind CSS                                    │
-│  ┌─────────┐  ┌──────────────┐  ┌──────────────────────────┐   │
-│  │CaseList │  │  NewCase     │  │  CaseDetail              │   │
-│  │(list)   │  │(input notes) │  │  (view/edit output)      │   │
-│  └─────────┘  └──────────────┘  └──────────────────────────┘   │
+│  ┌───────────┐ ┌──────────────┐ ┌───────────────────────────┐   │
+│  │ CaseList  │ │ NewCase      │ │ CaseDetail                │   │
+│  │ list + ID │ │ notes + opt. │ │ case ID, edit title,      │   │
+│  │ search    │ │ manual ID    │ │ view/edit structured out  │   │
+│  └───────────┘ └──────────────┘ └───────────────────────────┘   │
 └────────────────────────┬────────────────────────────────────────┘
                          │ REST API (axios)
 ┌────────────────────────▼────────────────────────────────────────┐
 │                   FASTAPI BACKEND                               │
-│  Python 3.11 · Uvicorn · SQLAlchemy · SQLite                    │
+│  Python 3.9+ · Uvicorn · SQLAlchemy · SQLite                    │
 │                                                                 │
 │  Routes:                                                        │
-│  POST /api/cases          — create case                         │
+│  POST /api/cases          — create case (optional body `id`)   │
 │  POST /api/cases/:id/generate — call LLM, store output          │
-│  PUT  /api/cases/:id      — save edits + track edited fields    │
+│  PUT  /api/cases/:id      — title, structured_output, edits     │
 │  GET  /api/cases          — list all cases                      │
 │  GET  /api/cases/:id      — get case by ID                      │
 │  DELETE /api/cases/:id    — delete case                         │
@@ -55,7 +56,8 @@ A full-stack web application that transforms unstructured clinical notes (ER not
 | Database | SQLite (SQLAlchemy) | Zero-config for dev, easy swap to PostgreSQL for prod |
 | Frontend | React + Vite + TypeScript | Fast build, strong typing for structured medical data |
 | Styling | Tailwind CSS v4 | Rapid UI iteration, no runtime overhead |
-| HTTP Client | axios | Interceptor support, clean error handling |
+| HTTP Client | axios | Surfaces FastAPI `detail` in the UI on errors |
+| JSON repair | [json-repair](https://pypi.org/project/json-repair/) | Recovers many near-valid JSON responses from the LLM when strict parsing fails |
 
 ---
 
@@ -67,7 +69,7 @@ The task requires **clinical reasoning**, not just pattern matching. Claude clau
 
 1. **System prompt as the "refinement layer"** — encodes MCG admission criteria, transformation rules, and output schema
 2. **Case A as few-shot example** — shows the exact input→output transformation pattern
-3. **Structured JSON output** — deterministic parsing, no hallucinated fields
+3. **Structured JSON output** — parsed with strict `json.loads`, then **`json-repair`** as a fallback; generous **`max_tokens`** (default 8192) reduces truncated JSON on long `revised_hpi` outputs
 
 ### Prompt Architecture
 
@@ -121,6 +123,15 @@ The Revised HPI follows a 6-sentence narrative arc proven in Case A:
 
 ---
 
+## Case identity and organization
+
+- Each case has a numeric **database ID** shown on the list and detail screens (`Case ID` / `ID n`).
+- **New Case**: optional **Case ID** field — leave blank for auto-increment; or set a positive integer to use as the primary key (must be unique; API returns **409** if already taken).
+- **All cases**: search box filters the list by ID (digits only; substring match, e.g. `12` matches `12` and `112`).
+- **Case detail**: edit the **title** in place (pencil icon); saves via `PUT /api/cases/:id`.
+
+---
+
 ## Edit Tracking
 
 The system distinguishes AI-generated vs. user-edited content:
@@ -137,9 +148,9 @@ The system distinguishes AI-generated vs. user-edited content:
 
 ### Prerequisites
 
-- Python 3.11+
-- Node.js 18+
-- Anthropic API key
+- **Python 3.9+** (3.11+ recommended)
+- **Node.js 18+**
+- **Anthropic** API key with billing/credits for the Messages API
 
 ### Backend
 
@@ -151,12 +162,24 @@ pip install -r requirements.txt
 
 # Create .env
 cp .env.example .env
-# Edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+# Edit .env — see Environment variables below
 
 uvicorn main:app --reload --port 8000
 ```
 
 API docs available at http://localhost:8000/docs
+
+### Environment variables (backend)
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `ANTHROPIC_API_KEY` | Yes | Secret key from [Anthropic Console → API keys](https://console.anthropic.com/settings/keys). One line, no extra quotes. |
+| `ANTHROPIC_MODEL` | No | Defaults to `claude-sonnet-4-6`. Override if your account uses a different model id. |
+| `ANTHROPIC_MAX_TOKENS` | No | Max completion tokens (default **8192**, clamped ~1024–32768). Raise if generation fails with truncated or invalid JSON on very long notes. |
+| `DATABASE_URL` | No | Defaults to `sqlite:///./cases.db`. |
+| `ALLOWED_ORIGINS` | No | Comma-separated CORS origins; default includes `http://localhost:5173` and `http://localhost:3000`. |
+
+A **401** or **credit balance** message from Anthropic is a key or billing issue, not an application bug. Restart Uvicorn after changing `.env`.
 
 ### Frontend
 
@@ -166,7 +189,7 @@ npm install
 npm run dev
 ```
 
-App available at http://localhost:5173
+App available at http://localhost:5173. In development, `vite.config.ts` proxies `/api` to `http://localhost:8000`. For production builds, set `VITE_API_URL` to the API base URL (e.g. `https://your-api.example.com`).
 
 ### Try Case B immediately
 
@@ -186,6 +209,7 @@ App available at http://localhost:5173
 3. Set environment variables:
    - `ANTHROPIC_API_KEY`
    - `ALLOWED_ORIGINS=https://your-vercel-app.vercel.app`
+   - Optional: `ANTHROPIC_MODEL`, `ANTHROPIC_MAX_TOKENS`
 4. Railway auto-detects the `requirements.txt` and deploys
 
 ### Frontend → Vercel
@@ -254,7 +278,7 @@ ahmc-hpi/
 │   ├── main.py          # FastAPI app + all routes
 │   ├── models.py        # SQLAlchemy ORM models
 │   ├── database.py      # DB engine + session + init
-│   ├── llm.py           # Claude integration + prompt
+│   ├── llm.py           # Claude integration, prompt, JSON parse + repair
 │   ├── requirements.txt
 │   └── .env.example
 ├── frontend/

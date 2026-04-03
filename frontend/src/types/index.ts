@@ -29,6 +29,8 @@ export interface CaseCreate {
   title: string
   er_note?: string
   hp_note?: string
+  /** Omit or leave unset for database auto-increment. Must be unique. */
+  id?: number
 }
 
 export interface CaseUpdate {
