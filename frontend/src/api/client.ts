@@ -36,6 +36,9 @@ export const casesApi = {
   generate: (id: number) =>
     api.post<Case>(`/api/cases/${id}/generate`).then(r => r.data),
 
+  clarify: (id: number, answers: string[]) =>
+    api.post<Case>(`/api/cases/${id}/clarify`, { answers }).then(r => r.data),
+
   update: (id: number, payload: CaseUpdate) =>
     api.put<Case>(`/api/cases/${id}`, payload).then(r => r.data),
 

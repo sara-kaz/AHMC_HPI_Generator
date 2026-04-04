@@ -1,15 +1,29 @@
 # AHMC Clinical HPI Generator
 
-A full-stack web application that transforms unstructured clinical notes (ER notes and H&P) into structured summaries with admission-supporting Revised HPI narratives, powered by Claude claude-sonnet-4-6.
+Take-home exercise for AHMC. The goal: take messy ER notes and H&P documents and turn them into a structured summary plus a clean Revised HPI that justifies why the patient needs to be admitted — through a usable web interface.
 
 ## Live Demo
 
-> **Frontend:** [Deploy to Vercel — link here after deployment]
-> **Backend API:** [Deploy to Railway — link here after deployment]
+> **Frontend:** [Vercel link — add after deployment]
+> **Backend API:** [Railway link — add after deployment]
 
 ---
 
-## Architecture Overview
+## What it does
+
+You paste in an ER note and/or H&P, click generate, and get back:
+
+- A structured breakdown — chief complaint, key findings, suspected diagnoses, which MCG admission criteria are met
+- A Revised HPI written as a coherent narrative that builds toward and supports the admission decision
+- Every field is editable in the UI, with a visual distinction between what the model generated and what you changed
+- Cases are saved so you can come back and review them
+- **Optional:** if the chart is *critically* thin, the model may ask for follow-up details (only after **two or more** questions — see `MIN_FOLLOW_UP_QUESTIONS`). Normal notes just finish; small gaps go in **uncertainties**, not a questionnaire.
+
+The **Load Case B** button on the new case page pre-fills the evaluation case from the exercise so you can test immediately.
+
+---
+
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -26,60 +40,55 @@ A full-stack web application that transforms unstructured clinical notes (ER not
 │                   FASTAPI BACKEND                               │
 │  Python 3.9+ · Uvicorn · SQLAlchemy · SQLite                    │
 │                                                                 │
-│  Routes:                                                        │
-│  POST /api/cases          — create case (optional body `id`)    │
-│  POST /api/cases/:id/generate — call LLM, store output          │
-│  PUT  /api/cases/:id      — title, structured_output, edits     │
-│  GET  /api/cases          — list all cases                      │
-│  GET  /api/cases/:id      — get case by ID                      │
-│  DELETE /api/cases/:id    — delete case                         │
-│  POST /api/generate       — ad-hoc generation (no save)         │
+│  POST /api/cases                — create case                   │
+│  POST /api/cases/:id/generate   — call LLM, store output        │
+│  PUT  /api/cases/:id            — save edits                    │
+│  GET  /api/cases                — list all cases                │
+│  GET  /api/cases/:id            — get one case                  │
+│  DELETE /api/cases/:id          — delete case                   │
 └────────────────────────┬────────────────────────────────────────┘
                          │ Anthropic Python SDK
 ┌────────────────────────▼────────────────────────────────────────┐
 │              ANTHROPIC API (claude-sonnet-4-6)                  │
-│  Few-shot prompt with:                                          │
-│  - MCG ISC Diabetes admission criteria                          │
-│  - Case A as reference transformation example                   │
-│  - Structured JSON output schema                                │
+│  System prompt: MCG criteria + Case A few-shot example          │
+│  Output: structured JSON → parsed into relational DB tables     │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Tech Stack & Rationale
+## Tech stack
 
 | Layer | Choice | Why |
 |-------|--------|-----|
-| LLM | Claude claude-sonnet-4-6 | Best-in-class clinical reasoning, structured JSON output, large context for few-shot prompting |
-| Backend | FastAPI (Python) | Native async, Pydantic validation, auto OpenAPI docs, natural fit for Anthropic Python SDK |
-| Database | SQLite (SQLAlchemy) | Zero-config for dev; structured LLM fields stored relationally (see below) |
-| Frontend | React + Vite + TypeScript | Fast build, strong typing for structured medical data |
-| Styling | Tailwind CSS v4 | Rapid UI iteration, no runtime overhead |
-| HTTP Client | axios | Surfaces FastAPI `detail` in the UI on errors |
-| JSON repair | [json-repair](https://pypi.org/project/json-repair/) | Recovers many near-valid JSON responses from the LLM when strict parsing fails |
+| LLM | Claude claude-sonnet-4-6 | Strong clinical reasoning; handles the few-shot pattern well |
+| Backend | FastAPI | Quick REST endpoints, plays nicely with the Anthropic Python SDK |
+| Database | SQLite + SQLAlchemy | No setup overhead; easy to swap for Postgres later |
+| Frontend | React + Vite + TypeScript | TypeScript keeps the structured output types honest across the stack |
+| Styling | Tailwind CSS v4 | Fast to iterate on without fighting a component library |
+| JSON repair | [json-repair](https://pypi.org/project/json-repair/) | LLMs occasionally produce near-valid JSON; this recovers those cases instead of failing hard |
 
 ---
 
-## LLM Approach: Few-Shot Prompting with Claude claude-sonnet-4-6
+## How I structured the clinical note
 
-### Why "pretrained + refine via prompting" rather than fine-tuning
+### Why prompting instead of fine-tuning
 
-The task requires **clinical reasoning**, not just pattern matching. Claude claude-sonnet-4-6 already has extensive medical knowledge. Fine-tuning on 2 cases would be counterproductive — it would overfit and destroy generalization. Instead, we use:
+Fine-tuning on 2 examples would just memorize them. The model already understands clinical medicine — what it needs is the MCG admission criteria and an example of the exact transformation. So the system prompt does three things:
 
-1. **System prompt as the "refinement layer"** — encodes MCG admission criteria, transformation rules, and output schema
-2. **Case A as few-shot example** — shows the exact input→output transformation pattern
-3. **Structured JSON output** — parsed with strict `json.loads`, then **`json-repair`** as a fallback; generous **`max_tokens`** (default 8192) reduces truncated JSON on long `revised_hpi` outputs
+1. Embeds the relevant MCG ISC Diabetes admission criteria (condensed from the provided guideline PDF)
+2. Includes Case A as a complete few-shot example — ER note + H&P in, structured JSON with Revised HPI out
+3. Enforces a strict JSON output schema so parsing is predictable
 
-### Prompt Architecture
+### Prompt structure
 
 ```
 SYSTEM:
-  - Role definition (clinical documentation specialist)
-  - MCG Diabetes admission criteria (verbatim from provided guideline)
-  - Transformation rules (no invented facts, cite specific values, etc.)
-  - Case A few-shot example (ER Note + H&P → structured JSON with Revised HPI)
-  - Output schema (JSON only, no prose wrapper)
+  - Role: clinical documentation specialist
+  - MCG Diabetes admission criteria (verbatim thresholds)
+  - Transformation rules: no invented facts, cite exact lab values, flag gaps
+  - Case A as few-shot example
+  - JSON schema (all 8 fields required)
 
 USER:
   === ER NOTE ===
@@ -91,81 +100,69 @@ USER:
 
 ### How the Revised HPI is structured
 
-The Revised HPI follows a 6-sentence narrative arc proven in Case A:
+I read through the sentence-by-sentence breakdown in the Case A reference document and pulled out the pattern:
 
-1. **Demographics + presentation** — age, key PMH, chief complaint
-2. **Objective ED findings** — vital sign abnormalities, exam findings
-3. **Laboratory results** — specific values mapped to MCG criteria
-4. **Clinical impression** — diagnosis as documented by treating physicians
-5. **Treatment escalation** — what interventions were required in ED
-6. **Admission justification** — synthesis connecting findings to inpatient necessity
+1. Demographics + what brought them in
+2. Objective exam findings in the ED
+3. Lab results — with specific values mapped to the MCG thresholds
+4. Clinical impression as documented by treating physicians
+5. What treatment was escalated to in the ED
+6. Why all of the above justifies inpatient admission rather than discharge or observation
 
-### Handling uncertainty and missing information
+### Uncertainty and missing information
 
-- The `uncertainties` field explicitly captures what was unclear or absent
-- The model is instructed never to invent facts not in the source notes
-- If key MCG criterion values are not documented, this is noted as a gap
+The `uncertainties` field is required in every output. The model is told not to invent values — if a lab result or detail isn't in the notes, it flags it rather than fills it in.
 
 ---
 
-## Structured Output Fields
+## Structured output fields
 
-| Field | Description |
-|-------|-------------|
-| `chief_complaint` | Primary reason for ED visit |
-| `hpi_summary` | Concise narrative of presenting illness |
-| `key_findings` | Bulleted objective findings (labs, vitals, exam) |
+| Field | What it captures |
+|-------|-----------------|
+| `chief_complaint` | Primary reason for the ED visit |
+| `hpi_summary` | Short narrative of the presenting illness |
+| `key_findings` | Objective findings: labs, vitals, exam |
 | `suspected_conditions` | Working diagnoses |
 | `disposition_recommendation` | Admit / Observe / Discharge / Unknown |
-| `admission_criteria_met` | Specific MCG criteria met, with values cited |
-| `uncertainties` | Missing or unclear information |
-| `revised_hpi` | Full admission-supporting narrative |
+| `admission_criteria_met` | Which MCG criteria are satisfied, with cited values |
+| `uncertainties` | What's missing or unclear from the notes |
+| `revised_hpi` | The full admission-supporting narrative |
 
 ---
 
-## Relational storage for structured output
+## Database schema
 
-Generated clinical structure is stored in **normalized tables** (not only as JSON on `cases`):
+The structured output is stored in relational tables (not just a JSON blob), with a denormalized JSON column kept in sync for quick reads:
 
-| Table | Purpose |
-|-------|---------|
-| `cases` | Case metadata, raw ER/H&P notes, generation status, `edited_fields`, and a **JSON cache** of `structured_output` kept in sync for exports and compatibility |
-| `clinical_structured_outputs` | **One row per case**: `chief_complaint`, `hpi_summary`, `disposition_recommendation`, `revised_hpi` |
-| `clinical_list_items` | **One row per list entry**: `category` (`key_findings`, `suspected_conditions`, `admission_criteria_met`, `uncertainties`), `sort_order`, `value` |
+| Table | What's in it |
+|-------|-------------|
+| `cases` | Case metadata, raw notes, generation status, `edited_fields`, JSON cache |
+| `clinical_structured_outputs` | One row per case: `chief_complaint`, `hpi_summary`, `disposition_recommendation`, `revised_hpi` |
+| `clinical_list_items` | One row per bullet: `key_findings`, `suspected_conditions`, `admission_criteria_met`, `uncertainties` |
 
-Foreign keys use **`ON DELETE CASCADE`**: deleting a case removes its structured rows. SQLite runs with **`PRAGMA foreign_keys=ON`**.
+Foreign keys cascade on delete. SQLite runs with `PRAGMA foreign_keys=ON`. On startup, any cases with only the old JSON column get migrated into the relational tables automatically.
 
-On startup, any legacy case that still has JSON but no relational rows is **migrated automatically** into these tables.
+### Case identity
 
-## Case identity and organization
-
-- Each case has a numeric **database ID** shown on the list and detail screens (`Case ID` / `ID n`).
-- **New Case**: optional **Case ID** field — leave blank for auto-increment; or set a positive integer to use as the primary key (must be unique; API returns **409** if already taken).
-- **All cases**: search box filters the list by ID (digits only; substring match, e.g. `12` matches `12` and `112`).
-- **Case detail**: edit the **title** in place (pencil icon); saves via `PUT /api/cases/:id`.
+- Each case gets a numeric ID shown in the list and on the detail page
+- You can optionally set a specific ID when creating; the API returns 409 if it's already taken
+- The case list has a search box that filters by ID
 
 ---
 
-## Edit Tracking
+## Edit tracking
 
-The system distinguishes AI-generated vs. user-edited content:
-
-- Every field shows an `🤖 AI` badge when generated
-- On first edit and save, the badge changes to `✏️ Edited`
-- The `edited_fields` array in the database records which fields were modified
-- A left amber border visually marks edited fields
-- The case list shows the count of edited fields per case
+The UI shows `🤖 AI` on every generated field. Once you edit and save a field, the badge switches to `✏️ Edited` and an amber left border appears. The `edited_fields` array in the database records which fields changed, and the case list shows the count.
 
 ---
 
-## How to Run Locally
+## Running locally
 
-### Prerequisites
+### Requirements
 
-- **Python 3.9+** (3.11+ recommended)
-- **Node.js 18+**
-- **Anthropic** API key with billing/credits for the Messages API
-- *(Optional)* A **SQLite viewer** if you want to inspect `cases.db` directly — see [Viewing the database](#viewing-the-database-optional) below (not required to run the app)
+- Python 3.9+ (3.11+ is smoother for pip)
+- Node.js 18+
+- Anthropic API key — get one at [console.anthropic.com](https://console.anthropic.com/settings/keys)
 
 ### Backend
 
@@ -173,41 +170,33 @@ The system distinguishes AI-generated vs. user-edited content:
 cd backend
 python -m venv venv
 source venv/bin/activate        # Windows: venv\Scripts\activate
+pip install --upgrade pip       # important on Python 3.9 with old pip
 pip install -r requirements.txt
 
-# Create .env
 cp .env.example .env
-# Edit .env — see Environment variables below
+# Open .env and add your ANTHROPIC_API_KEY — no quotes, just the raw value
 
 uvicorn main:app --reload --port 8000
 ```
 
-API docs available at http://localhost:8000/docs
+`main.py` lives in `backend/`, so the command above assumes your shell’s current directory is `backend/`. If you see **Could not import module "main"**, you ran uvicorn from the repo root (or another folder). Either `cd backend` first, or from the repo root run:
 
-### Environment variables (backend)
+```bash
+python -m uvicorn main:app --app-dir backend --reload --port 8000
+```
 
-| Variable | Required | Description |
-|----------|----------|-------------|
-| `ANTHROPIC_API_KEY` | Yes | Secret key from [Anthropic Console → API keys](https://console.anthropic.com/settings/keys). One line, no extra quotes. |
-| `ANTHROPIC_MODEL` | No | Defaults to `claude-sonnet-4-6`. Override if your account uses a different model id. |
-| `ANTHROPIC_MAX_TOKENS` | No | Max completion tokens (default **8192**, clamped ~1024–32768). Raise if generation fails with truncated or invalid JSON on very long notes. |
-| `DATABASE_URL` | No | Defaults to `sqlite:///./cases.db`. |
-| `ALLOWED_ORIGINS` | No | Comma-separated CORS origins; default includes `http://localhost:5173` and `http://localhost:3000`. |
+API docs at http://localhost:8000/docs
 
-A **401** or **credit balance** message from Anthropic is a key or billing issue, not an application bug. Restart Uvicorn after changing `.env`.
+### Environment variables
 
-### Viewing the database (optional)
-
-The default database is **SQLite** at **`backend/cases.db`** (same folder you run `uvicorn` from, unless `DATABASE_URL` points elsewhere). Nothing extra is installed by this repo to browse it—you use any SQLite-capable tool:
-
-| Tool | Requirement | Notes |
-|------|-------------|--------|
-| **sqlite3** (terminal) | Usually preinstalled on macOS; otherwise your OS/package manager | `cd backend && sqlite3 cases.db` → `.tables` → `SELECT * FROM cases LIMIT 5;` → `.quit` |
-| **[DB Browser for SQLite](https://sqlitebrowser.org/)** | Free desktop app | Open `cases.db`, use **Browse Data** on `cases`, `clinical_structured_outputs`, `clinical_list_items` |
-| **TablePlus**, **DBeaver**, **DataGrip** | Install separately | Add a SQLite connection to `backend/cases.db` |
-| **VS Code / Cursor** | Install a marketplace extension such as **SQLite Viewer** | Open `cases.db` from the workspace |
-
-**Tip:** If the API is writing to the DB, some GUI tools may show a locked file—open read-only or pause Uvicorn briefly if you run into locking issues.
+| Variable | Required | Notes |
+|----------|----------|-------|
+| `ANTHROPIC_API_KEY` | Yes | No quotes. Restart uvicorn after changing. |
+| `ANTHROPIC_MODEL` | No | Default: `claude-sonnet-4-6` |
+| `ANTHROPIC_MAX_TOKENS` | No | Default: 8192. Increase if you get truncated JSON on long notes. |
+| `MIN_FOLLOW_UP_QUESTIONS` | No | Default: **2**. The optional “missing info” question UI only appears when the model returns at least this many follow-up questions; otherwise gaps stay in `uncertainties` and generation completes normally. |
+| `DATABASE_URL` | No | Default: `sqlite:///./cases.db` |
+| `ALLOWED_ORIGINS` | No | Default includes localhost:5173 and localhost:3000 |
 
 ### Frontend
 
@@ -217,14 +206,14 @@ npm install
 npm run dev
 ```
 
-App available at http://localhost:5173. In development, `vite.config.ts` proxies `/api` to `http://localhost:8000`. For production builds, set `VITE_API_URL` to the API base URL (e.g. `https://your-api.example.com`).
+App at http://localhost:5173. Vite proxies `/api` to port 8000 in dev. For production, set `VITE_API_URL` to the deployed backend URL.
 
-### Try Case B immediately
+### Quick test
 
-1. Open the app → click **New Case**
-2. Click **Load Case B** button (pre-loads the provided Case B ER note + H&P)
-3. Click **Generate Structured Output + Revised HPI**
-4. Review the generated output, edit any fields, and save
+1. Open the app → **New Case**
+2. Click **Load Case B** — pre-fills the evaluation case from the exercise
+3. Click **Generate**
+4. Review, edit any fields, save
 
 ---
 
@@ -232,89 +221,84 @@ App available at http://localhost:5173. In development, `vite.config.ts` proxies
 
 ### Backend → Railway
 
-1. Create a Railway project
-2. Link your GitHub repo, set root directory to `backend/`
-3. Set environment variables:
-   - `ANTHROPIC_API_KEY`
-   - `ALLOWED_ORIGINS=https://your-vercel-app.vercel.app`
-   - Optional: `ANTHROPIC_MODEL`, `ANTHROPIC_MAX_TOKENS`
-4. Railway auto-detects the `requirements.txt` and deploys
+1. New project → link this repo, root directory: `backend/`
+2. Set env vars: `ANTHROPIC_API_KEY`, `ALLOWED_ORIGINS=https://your-vercel-app.vercel.app`
+3. Railway picks up `requirements.txt` automatically
 
 ### Frontend → Vercel
 
-1. Import repo to Vercel, set root directory to `frontend/`
-2. Set environment variable:
-   - `VITE_API_URL=https://your-railway-backend.railway.app`
+1. Import repo → root directory: `frontend/`
+2. Set `VITE_API_URL=https://your-railway-backend.railway.app`
 3. Deploy
 
 ---
 
-## AI Tool Usage Disclosure
+## AI tool usage disclosure
 
-### Tools Used
+### Tools used
 
 | Tool | Purpose |
 |------|---------|
-| Claude Code (claude-sonnet-4-6) | Full-stack implementation, prompt design, architecture |
-| Claude claude-sonnet-4-6 (runtime) | Clinical note analysis and HPI generation |
-| Cursor |Frontend Debugging & Feature Addition|
+| Claude Code | Generated the initial backend and frontend skeleton to get moving quickly |
+| Claude claude-sonnet-4-6 (runtime) | Powers the actual note analysis and HPI generation in the app |
+| Cursor | Used for debugging and iterating on features after the initial scaffold |
 
-### What was AI-assisted
+### What AI generated
 
-- **Backend**: FastAPI structure, SQLAlchemy models, API routes, LLM service layer
-- **Frontend**: React component architecture, Tailwind styling, TypeScript types
-- **Prompt engineering**: MCG criteria condensation, few-shot example structure, output schema
+Claude Code produced the starting point: a basic FastAPI app with simple CRUD routes, a single `cases` table with a JSON column, and a React frontend with three pages wired together. Think of it as a working boilerplate — the kind of thing that saves you from writing the same `GET /items/{id}` route for the hundredth time.
 
-### What was manually designed
+The scaffolding prompt for the backend was roughly: *"FastAPI app with SQLite for storing clinical cases — each case has an ER note, H&P note, a JSON output field, and a list of which fields the user has edited."* For the frontend: *"React + TypeScript with react-router-dom, three pages: case list, new case with two note textareas, and a case detail page that shows the structured output with editable fields and AI/user-edited badges."*
 
-- **Clinical prompt architecture**: The 6-sentence Revised HPI structure was derived from analyzing the Case A example transformation (sentence-by-sentence comparison table in the provided docx)
-- **MCG criteria selection**: Condensed the full MCG guideline to the admission-relevant decision points
-- **Edit tracking schema**: The `edited_fields` array approach to distinguish AI vs. human content
-- **Few-shot formatting**: How Case A is embedded in the system prompt to maximize transfer to Case B
+### What I designed and built
 
-### How correctness was verified
+**The clinical prompt** — This was the most important part and the AI couldn't do it for me. I read through the Case A reference document carefully, including the sentence-by-sentence comparison table, to understand the transformation pattern: why each sentence was included, which MCG criteria it addressed, and how the narrative builds toward justifying admission. I then wrote the system prompt from scratch — the MCG criteria condensation, the six-sentence arc, the rules about citing exact values, and the instruction to flag missing information rather than fill it in.
 
-- Case A output was compared against the human-optimized Revised HPI provided in the exercise
-- Key lab values (pH 7.20, bicarb 7.4, glucose 93) verified to be correctly extracted and cited
-- MCG criteria mapping verified against the full guideline PDF
-- Frontend type safety enforced via TypeScript throughout
+**The database schema** — The scaffold stored everything as a single JSON blob. I replaced that with proper relational tables: `clinical_structured_outputs` for the scalar fields and `clinical_list_items` for the bulleted lists, with cascade delete and SQLite foreign key enforcement. I also wrote the `clinical_storage.py` module that handles persisting to and reading from those tables, keeping a JSON cache in sync for fast list reads, and migrating any old JSON-only rows on startup.
 
-### Prompts used for scaffolding
+**Edit tracking** — The `edited_fields` string array on the case, and the logic that reads it to toggle between the `🤖 AI` and `✏️ Edited` badges in the UI. Simple mechanism but it required thinking through the round-trip: generate → display → edit → save → reload should all stay consistent.
 
-**Backend structure prompt:** "Build a FastAPI backend with SQLite for storing clinical cases. Each case has an ER note, H&P note, structured JSON output, and an edited_fields array to track user modifications."
+**Error handling and robustness** — Added `json-repair` after noticing the model occasionally produces near-valid JSON that `json.loads` rejects outright (usually unescaped quotes inside field values). The flow is: strict parse → repair fallback → clear error message if both fail. Also wired up proper error surfacing from the Anthropic API (auth failures, token limit hits) through to the UI so errors are readable rather than just a 500.
 
-**Frontend structure prompt:** "React TypeScript app with react-router-dom. Pages: case list, new case (textarea inputs), case detail (editable structured output with AI/edited badges)."
+**Frontend feature additions** — Case ID search on the list page, inline title editing on the detail page, the regenerate flow with confirmation, and the Case B pre-fill button.
 
----
+### How I checked the output
 
-## If I Had More Time
+I ran Case A through the system and compared the generated Revised HPI against the human-written version in the reference document. The specific things I checked: all key lab values present and cited correctly (pH 7.20, bicarb 7.4, glucose 93), clinical context included (Kussmaul breathing, SGLT2 inhibitor trigger), escalation documented (insulin drip, bicarbonate, 3L saline, ICU plan), and the MCG criteria in `admission_criteria_met` actually matching the thresholds in the guideline PDF (pH < 7.30, bicarb ≤ 18 mEq/L, 2+ ketonuria). Then tested the edit tracking round-trip and the main error paths.
 
-1. **Streaming generation** — stream Claude's response token-by-token to the UI for faster perceived performance
-2. **Multi-case learning** — store approved human-edited outputs as additional few-shot examples for future generations
-3. **PDF/DOCX upload** — parse uploaded clinical note files directly rather than requiring paste
-4. **Diff viewer** — side-by-side comparison between original AI output and user edits
-5. **Authentication** — user accounts with case ownership
-6. **Export** — download Revised HPI as Word document
+I also tested **thin charts** — notes where important things were left out on purpose (e.g. no age, blank IMPRESSION/DISPOSITION lines). I’d generate once, read the JSON and the Revised HPI, and check whether the model **invented** age or disposition to sound complete, whether **`uncertainties`** actually called out what was missing, and whether the **follow-up question** path fired when it should. Then I used the app’s **clarify / supplemental** flow: I supplied the missing facts (like age or disposition) the way a clinician would, regenerated, and compared the second pass to the first — did it incorporate the new info without contradicting the chart, and did it stop hallucinating gaps?
+
+When I saw the model **fill in** undocumented demographics or disposition, or stay silent in `uncertainties` while still writing a confident narrative, I treated that as a failure mode and **tightened `llm.py`**: stronger “no fabrication” rules, a mandatory checklist for age and blank disposition fields, and instructions to prefer **uncertainties** and **follow-up questions** over guessing. That iteration loop — run a bad note → inspect output for hallucination → adjust the prompt → re-run — is how the current system prompt got to where it is.
 
 ---
 
-## Project Structure
+## If I had more time
+
+1. **More training examples** — One few-shot example is fragile. With more human-reviewed cases across different presentations, the output would be more consistent. Right now I can't tell if Case B works well because the model is generalizing or because it's similar enough to Case A.
+2. **Broader input types** — The prompt is designed around diabetes/DKA and the MCG ISC guideline. To handle other conditions (cardiac, respiratory, etc.) I'd need a way to select or inject the right guideline and probably rethink how the few-shot examples are organized.
+3. **Export to Word** — Clinicians need to paste this into EHR systems. A download as `.docx` would make it actually useful in the workflow.
+4. **PDF/DOCX upload** — Pasting notes manually works for a demo but adds friction. Drag-and-drop with text extraction would be more realistic.
+5. **Diff view** — Side-by-side between the original AI output and the saved version, so reviewers can see exactly what was changed.
+6. **Authentication** — Right now it's single-user. Real deployment would need accounts.
+
+---
+
+## Project structure
 
 ```
 ahmc-hpi/
 ├── backend/
-│   ├── main.py             # FastAPI app + all routes
-│   ├── models.py           # Case + relational clinical_* models
-│   ├── clinical_storage.py # Persist / load structured output (relational + JSON cache)
-│   ├── database.py         # Engine, SQLite FK pragma, init + legacy migration
-│   ├── llm.py              # Claude integration, prompt, JSON parse + repair
+│   ├── main.py              # FastAPI app and all routes
+│   ├── models.py            # SQLAlchemy models (Case + clinical tables)
+│   ├── clinical_storage.py  # Read/write structured output (relational + JSON cache)
+│   ├── database.py          # Engine, SQLite FK pragma, init + migration
+│   ├── llm.py               # Claude prompt, JSON parsing, error handling
 │   ├── requirements.txt
 │   └── .env.example
 ├── frontend/
 │   ├── src/
 │   │   ├── App.tsx
-│   │   ├── api/client.ts       # axios API wrapper
-│   │   ├── types/index.ts      # TypeScript interfaces
+│   │   ├── api/client.ts        # axios wrapper + error surfacing
+│   │   ├── types/index.ts       # TypeScript types
 │   │   ├── components/
 │   │   │   ├── Badge.tsx
 │   │   │   ├── EditableField.tsx

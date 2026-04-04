@@ -21,6 +21,10 @@ class Case(Base):
     generation_status = Column(String(50), default="pending")
     generation_error = Column(Text, nullable=True)
 
+    # When the model needs more detail (e.g. missing age): questions + accumulated answers
+    follow_up_questions = Column(JSON, nullable=True)
+    supplemental_answers = Column(JSON, nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now(), server_default=func.now())
 

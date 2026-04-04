@@ -1,4 +1,4 @@
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 import os
 from dotenv import load_dotenv
@@ -36,10 +36,23 @@ def get_db():
         db.close()
 
 
+def _sqlite_add_columns_if_missing():
+    if "sqlite" not in DATABASE_URL:
+        return
+    with engine.begin() as conn:
+        rows = conn.execute(text("PRAGMA table_info(cases)")).fetchall()
+        existing = {r[1] for r in rows}
+        if "follow_up_questions" not in existing:
+            conn.execute(text("ALTER TABLE cases ADD COLUMN follow_up_questions JSON"))
+        if "supplemental_answers" not in existing:
+            conn.execute(text("ALTER TABLE cases ADD COLUMN supplemental_answers JSON"))
+
+
 def init_db():
     from models import Case, ClinicalListItem, ClinicalStructuredOutput  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
+    _sqlite_add_columns_if_missing()
 
     db = SessionLocal()
     try:

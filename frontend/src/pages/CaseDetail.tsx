@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft, ChevronDown, ChevronUp, Loader2, Trash2, RefreshCw, Pencil, Check, X } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronUp, Loader2, Trash2, RefreshCw, Pencil, Check, X, MessageCircle } from 'lucide-react'
 import { casesApi, getApiErrorMessage } from '../api/client'
 import { StructuredOutput } from '../components/StructuredOutput'
 import type { Case } from '../types'
@@ -18,10 +18,21 @@ export function CaseDetail() {
   const [titleDraft, setTitleDraft] = useState('')
   const [titleSaving, setTitleSaving] = useState(false)
   const [titleError, setTitleError] = useState('')
+  const [clarifyDrafts, setClarifyDrafts] = useState<string[]>([])
+  const [clarifying, setClarifying] = useState(false)
 
   useEffect(() => {
     casesApi.get(Number(id)).then(setCase).finally(() => setLoading(false))
   }, [id])
+
+  useEffect(() => {
+    if (!case_?.follow_up_questions?.length) {
+      setClarifyDrafts([])
+      return
+    }
+    const supp = case_.supplemental_answers || {}
+    setClarifyDrafts(case_.follow_up_questions.map(q => supp[q] ?? ''))
+  }, [case_])
 
   async function handleDelete() {
     if (!confirm('Delete this case?')) return
@@ -74,6 +85,25 @@ export function CaseDetail() {
       setRegenError(getApiErrorMessage(e))
     } finally {
       setRegenerating(false)
+    }
+  }
+
+  async function handleClarify() {
+    if (!case_?.follow_up_questions?.length) return
+    if (!clarifyDrafts.some(s => s.trim())) {
+      setRegenError('Enter at least one answer before regenerating.')
+      return
+    }
+    setRegenError('')
+    setClarifying(true)
+    try {
+      const answers = (case_.follow_up_questions || []).map((_, i) => clarifyDrafts[i] ?? '')
+      const updated = await casesApi.clarify(case_.id, answers)
+      setCase(updated)
+    } catch (e: unknown) {
+      setRegenError(getApiErrorMessage(e))
+    } finally {
+      setClarifying(false)
     }
   }
 
@@ -173,6 +203,50 @@ export function CaseDetail() {
         <div className="mb-4 bg-red-50 border border-red-200 rounded-xl p-3 text-sm text-red-700">{regenError}</div>
       )}
 
+      {case_.generation_status === 'awaiting_clarification' &&
+        case_.follow_up_questions &&
+        case_.follow_up_questions.length > 0 && (
+          <div className="mb-6 bg-amber-50 border border-amber-200 rounded-2xl p-5 space-y-4">
+            <div className="flex items-start gap-2">
+              <MessageCircle className="text-amber-600 shrink-0 mt-0.5" size={20} />
+              <div>
+                <p className="text-sm font-semibold text-amber-900">More information needed</p>
+                <p className="text-xs text-amber-800/90 mt-1">
+                  Answer the questions below. Your responses are sent with the original notes on the next generation.
+                </p>
+              </div>
+            </div>
+            <div className="space-y-3">
+              {case_.follow_up_questions.map((q, i) => (
+                <div key={i}>
+                  <label className="block text-xs font-medium text-amber-900/90 mb-1">{q}</label>
+                  <input
+                    type="text"
+                    value={clarifyDrafts[i] ?? ''}
+                    onChange={e => {
+                      const next = [...clarifyDrafts]
+                      while (next.length <= i) next.push('')
+                      next[i] = e.target.value
+                      setClarifyDrafts(next)
+                    }}
+                    className="w-full px-3 py-2 text-sm border border-amber-200 rounded-lg bg-white focus:outline-none focus:ring-2 focus:ring-amber-400"
+                    placeholder="Your answer"
+                  />
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => void handleClarify()}
+              disabled={clarifying}
+              className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 bg-amber-600 text-white text-sm font-semibold rounded-xl hover:bg-amber-700 disabled:opacity-60"
+            >
+              {clarifying ? <Loader2 size={16} className="animate-spin" /> : <MessageCircle size={16} />}
+              Apply answers & regenerate
+            </button>
+          </div>
+        )}
+
       {/* Original Notes Accordion */}
       <div className="bg-white rounded-2xl border border-slate-200 mb-6 overflow-hidden">
         <button
@@ -215,7 +289,8 @@ export function CaseDetail() {
         </div>
       )}
 
-      {case_.generation_status === 'completed' && case_.structured_output && (
+      {(case_.generation_status === 'completed' || case_.generation_status === 'awaiting_clarification') &&
+        case_.structured_output && (
         <StructuredOutput case_={case_} onUpdated={setCase} />
       )}
     </div>

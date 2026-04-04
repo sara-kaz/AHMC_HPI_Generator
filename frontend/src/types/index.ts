@@ -1,5 +1,10 @@
 export type DispositionRecommendation = 'Admit' | 'Observe' | 'Discharge' | 'Unknown'
-export type GenerationStatus = 'pending' | 'generating' | 'completed' | 'failed'
+export type GenerationStatus =
+  | 'pending'
+  | 'generating'
+  | 'completed'
+  | 'failed'
+  | 'awaiting_clarification'
 
 export interface StructuredOutput {
   chief_complaint: string
@@ -21,6 +26,9 @@ export interface Case {
   edited_fields: string[]
   generation_status: GenerationStatus
   generation_error: string | null
+  /** Model needs more detail — answer then call clarify API */
+  follow_up_questions?: string[] | null
+  supplemental_answers?: Record<string, string> | null
   created_at: string
   updated_at: string
 }

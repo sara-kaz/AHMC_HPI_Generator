@@ -186,7 +186,8 @@ EXPECTED OUTPUT:
     "Outpatient insulin regimen not clearly established (newly diagnosed)",
     "Long-term diabetes management plan pending"
   ],
-  "revised_hpi": "A 47-year-old man with a recent diagnosis of diabetes who had started metformin and Jardiance presented to the emergency department after one day of nausea, vomiting, inability to sleep, and difficulty taking deep breaths. In the emergency department, he was described as tachycardic and exhibiting Kussmaul breathing. Laboratory evaluation demonstrated large serum and urine ketones with severe metabolic acidosis, including arterial pH 7.20, bicarbonate 7.4 millimoles per liter, and serum carbon dioxide less than 7 millimoles per liter, while serum glucose remained in the normal range. Emergency physicians documented euglycemic diabetic ketoacidosis in the setting of recent Jardiance use. In the emergency department he received bicarbonate, three liters of normal saline, and was started on an insulin infusion after repeated reassessments. Taken together, the documented severe acidosis with ketosis, escalation of emergency department treatment to continuous intravenous therapy, critical care involvement, and planned intensive care unit-level management supported the decision for inpatient admission rather than discharge or observation."
+  "revised_hpi": "A 47-year-old man with a recent diagnosis of diabetes who had started metformin and Jardiance presented to the emergency department after one day of nausea, vomiting, inability to sleep, and difficulty taking deep breaths. In the emergency department, he was described as tachycardic and exhibiting Kussmaul breathing. Laboratory evaluation demonstrated large serum and urine ketones with severe metabolic acidosis, including arterial pH 7.20, bicarbonate 7.4 millimoles per liter, and serum carbon dioxide less than 7 millimoles per liter, while serum glucose remained in the normal range. Emergency physicians documented euglycemic diabetic ketoacidosis in the setting of recent Jardiance use. In the emergency department he received bicarbonate, three liters of normal saline, and was started on an insulin infusion after repeated reassessments. Taken together, the documented severe acidosis with ketosis, escalation of emergency department treatment to continuous intravenous therapy, critical care involvement, and planned intensive care unit-level management supported the decision for inpatient admission rather than discharge or observation.",
+  "follow_up_questions": []
 }
 """
 
@@ -205,13 +206,31 @@ ADMISSION CRITERIA REFERENCE:
 {MCG_CRITERIA}
 
 TRANSFORMATION RULES:
-- Never invent facts not present in the source notes
-- Use precise medical language and values from the notes
-- The Revised HPI must logically build toward and support the disposition decision
-- Sentence structure: Patient demographics → Presenting symptoms → Objective findings → Diagnosis/Impression → Treatment in ED → Summary of why inpatient admission is warranted
-- For each MCG criterion met, cite the specific lab value or finding
-- If information is missing or uncertain, explicitly note it
-- Disposition recommendation: "Admit", "Observe", "Discharge", or "Unknown"
+- **No fabrication:** Do not state age, sex, vitals, labs, medications, allergies, past medical history, timing, staff actions, or disposition unless they appear in the ER/H&P notes or in the CLINICIAN-PROVIDED SUPPLEMENT below. Do not "fill in" plausible but undocumented details to make the narrative sound complete.
+- **Inference:** You may only draw **clinical inferences that chain documented data** (e.g. acidosis from documented pH and bicarbonate together). Do not infer **patient-specific** facts that are not written or clearly implied by the text (e.g. do not guess age, comorbidities, or home medications if absent).
+- **When something is missing:** Say "not documented" or "unknown" in narrative fields where appropriate; add a bullet to **uncertainties** instead of guessing. Keep **key_findings** and lists limited to what the notes support; use fewer items rather than padding with invented content.
+- **Revised HPI:** Build only from documented facts and allowed inferences above. If critical facts are missing, write a shorter, honest narrative that does not invent them—do not fabricate demographics or labs to satisfy the MCG narrative shape.
+- Use precise medical language and **quote or paraphrase values exactly as documented** when present.
+- The Revised HPI must logically support the disposition **only to the extent supported by the notes**.
+- Sentence structure when data exists: demographics (if documented) → presentation → objective findings → impression → ED course → admission rationale.
+- For each MCG criterion you claim is met, the cited value or finding must appear in the source notes.
+- Disposition recommendation: "Admit", "Observe", "Discharge", or "Unknown" — use **"Unknown"** if disposition is not clear from the notes.
+
+MANDATORY DOCUMENTATION CHECKLIST (do not skip — scan the full ER and H&P text):
+1. **Patient age**
+   - Look for an explicit age (e.g. "34 y/o", "age 47", "47-year-old", numeric age in HPI/demographics). If **no age appears anywhere** in the combined notes:
+     - You **MUST** add to **uncertainties**: "Patient age not documented in the source notes."
+     - You **MUST NOT** write a specific age or age range in **chief_complaint**, **hpi_summary**, or **revised_hpi** (use neutral phrasing such as "the patient" or "an adult patient" without a number).
+     - You **MUST** include **"What is the patient's age?"** (or equivalent) as the **first** entry in **follow_up_questions**, and you **MUST** add a **second** follow-up question for the next most critical gap (e.g. blank disposition below, or confirming disposition intent).
+   - If age appears in either note, do not add the age-not-documented uncertainty.
+
+2. **Disposition and impression (structured fields vs narrative)**
+   - If the ER note shows **blank or empty IMPRESSION and/or DISPOSITION** sections (or clearly unfilled lines), you **MUST** add an uncertainty stating that those structured fields were not completed in the source, **and** briefly state whether disposition or disposition intent appears elsewhere (e.g. MDM, Assessment/Plan, "Admit ICU").
+   - If **no** disposition or disposition intent appears **anywhere** in the combined ER+H&P text, set **disposition_recommendation** to **"Unknown"**, add an uncertainty that disposition was not documented, and include a follow-up question asking for the documented disposition or disposition intent.
+   - Do **not** invent a disposition in **revised_hpi** that is not supported by the text; if you infer from MDM/plan, say so explicitly (e.g. "Disposition header blank; plan documents ICU admission").
+
+3. **follow_up_questions length**
+   - Whenever patient age is missing per (1), **follow_up_questions must contain at least two questions** (age + one other critical gap). Never return an empty follow_up_questions if age was not documented.
 
 {CASE_A_EXAMPLE}
 
@@ -219,7 +238,14 @@ JSON OUTPUT RULES (required):
 - Respond with exactly one JSON object and nothing else (no markdown fences, no commentary).
 - In every string value, escape internal double-quotes as backslash-quote (\\"). Never leave a string open-ended.
 - Prefer short clause-style sentences in revised_hpi so the object stays valid; avoid pasting raw chart text with quotes inside a JSON string.
-- Include all keys through revised_hpi; the JSON must be complete.
+- Include all keys through follow_up_questions; the JSON must be complete.
+
+FOLLOW-UP QUESTIONS (follow_up_questions):
+- **Prefer asking over guessing** — never fabricate age or disposition; see MANDATORY DOCUMENTATION CHECKLIST above.
+- **When age is not documented:** you must use a **non-empty** follow_up_questions array with **at least two** questions (first asks for age; second asks for another critical gap such as disposition if the structured disposition/impression is blank or ambiguous).
+- **When age is documented** but notes are otherwise critically sparse (multiple pillars missing, no key labs, etc.), you may still use follow_up_questions with **at least two** items, or rely on **uncertainties** if a single non-critical fact is missing.
+- Questions must request **missing factual data**, not editorial opinion.
+- If a "CLINICIAN-PROVIDED SUPPLEMENT" section exists below, do not ask for information already answered there.
 
 OUTPUT FORMAT — respond ONLY with valid JSON, no prose before or after:
 {{
@@ -230,21 +256,31 @@ OUTPUT FORMAT — respond ONLY with valid JSON, no prose before or after:
   "disposition_recommendation": "Admit | Observe | Discharge | Unknown",
   "admission_criteria_met": ["...", "..."],
   "uncertainties": ["...", "..."],
-  "revised_hpi": "..."
+  "revised_hpi": "...",
+  "follow_up_questions": []
 }}
 """
 
 
-def generate_structured_output(er_note: Optional[str], hp_note: Optional[str]) -> dict:
+def generate_structured_output(
+    er_note: Optional[str],
+    hp_note: Optional[str],
+    supplemental_block: Optional[str] = None,
+) -> dict:
     """
     Call Claude claude-sonnet-4-6 with few-shot prompt to generate structured clinical output.
-    Returns parsed JSON dict.
+    Returns parsed JSON dict (may include follow_up_questions).
     """
     parts = []
     if er_note and er_note.strip():
         parts.append(f"=== ER NOTE ===\n{er_note.strip()}")
     if hp_note and hp_note.strip():
         parts.append(f"=== H&P NOTE ===\n{hp_note.strip()}")
+    if supplemental_block and supplemental_block.strip():
+        parts.append(
+            "=== CLINICIAN-PROVIDED SUPPLEMENT (answers to missing details) ===\n"
+            + supplemental_block.strip()
+        )
 
     if not parts:
         raise ValueError("At least one clinical note (ER or H&P) must be provided.")
@@ -302,5 +338,11 @@ def generate_structured_output(er_note: Optional[str], hp_note: Optional[str]) -
     if disp not in valid_dispositions:
         disp = "Unknown"
     result["disposition_recommendation"] = disp
+
+    fu = result.get("follow_up_questions")
+    if not isinstance(fu, list):
+        result["follow_up_questions"] = []
+    else:
+        result["follow_up_questions"] = [str(x).strip() for x in fu if str(x).strip()]
 
     return result

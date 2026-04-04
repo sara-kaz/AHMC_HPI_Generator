@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Plus, Loader2, FileText, ChevronRight, AlertCircle, CheckCircle, Clock, Search } from 'lucide-react'
+import { Plus, Loader2, FileText, ChevronRight, AlertCircle, CheckCircle, Clock, Search, MessageCircle } from 'lucide-react'
 import { casesApi } from '../api/client'
 import { Badge } from '../components/Badge'
 import type { Case, DispositionRecommendation } from '../types'
@@ -16,6 +16,7 @@ function StatusIcon({ status }: { status: string }) {
   if (status === 'completed') return <CheckCircle size={14} className="text-green-500" />
   if (status === 'failed') return <AlertCircle size={14} className="text-red-500" />
   if (status === 'generating') return <Loader2 size={14} className="animate-spin text-blue-400" />
+  if (status === 'awaiting_clarification') return <MessageCircle size={14} className="text-amber-500" />
   return <Clock size={14} className="text-slate-400" />
 }
 
