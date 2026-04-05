@@ -1,19 +1,24 @@
 # AHMC Clinical HPI Generator
 
-Take-home exercise for AHMC. The goal: take messy ER notes and H&P documents and turn them into a structured summary plus a clean Revised HPI that justifies why the patient needs to be admitted — through a usable web interface.
+Take-home exercise for AHMC: turn messy ER notes and H&P documents into a structured summary plus a Revised HPI that supports admission — delivered through a web app you can try in the browser.
 
-## Live Demo
+## For reviewers
 
-**Share these links** with reviewers (no login required unless you enable Vercel deployment protection). Anyone with the URL can use the app; the API must allow that origin via **`ALLOWED_ORIGINS`** on Railway (production URL below, plus any preview URL you share—comma-separated).
+**Try the app first (no login):** open **[the live app](https://ahmc-hpi-generator.vercel.app)** → **New Case** → **Load Case B** → **Generate**, then explore the structured fields and Revised HPI. Cases persist for that deployment (SQLite on the server).
 
-| | URL |
-|---|-----|
-| **App (Vercel — production)** | [https://ahmc-hpi-generator.vercel.app](https://ahmc-hpi-generator.vercel.app) |
-| **App (Vercel — branch preview)** | [https://ahmc-hpi-generator-git-master-sara-kazs-projects.vercel.app](https://ahmc-hpi-generator-git-master-sara-kazs-projects.vercel.app) |
-| **API (Railway)** | [https://web-production-843a9.up.railway.app](https://web-production-843a9.up.railway.app) |
-| **API docs** | [https://web-production-843a9.up.railway.app/docs](https://web-production-843a9.up.railway.app/docs) |
+**What to read in this README (in order if you want depth):** [Live demo & links](#live-demo) → [What it does](#what-it-does) → [Architecture](#architecture) → [How I structured the clinical note](#how-i-structured-the-clinical-note) → [Testing & prompt iteration](#how-i-checked-the-output) (under *AI tool usage disclosure*) → [Deployment](#deployment) (how it was hosted) → [AI tool usage disclosure](#ai-tool-usage-disclosure).
 
-See **[Deployment](#deployment)** below for env vars (`VITE_API_URL`, `ALLOWED_ORIGINS`).
+---
+
+## Live demo
+
+| What | Link |
+|------|------|
+| **Web app (use this one)** | **[https://ahmc-hpi-generator.vercel.app](https://ahmc-hpi-generator.vercel.app)** |
+| OpenAPI / Swagger | [API `/docs`](https://web-production-843a9.up.railway.app/docs) |
+| API base (health: `/health`) | [https://web-production-843a9.up.railway.app](https://web-production-843a9.up.railway.app) |
+
+*Optional:* [branch preview URL](https://ahmc-hpi-generator-git-master-sara-kazs-projects.vercel.app) (same app; may differ per deploy). Hosting details and env vars (`VITE_API_URL`, `ALLOWED_ORIGINS`) are in **[Deployment](#deployment)**.
 
 ---
 
