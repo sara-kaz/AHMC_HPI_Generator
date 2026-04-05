@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Plus, Loader2, FileText, ChevronRight, AlertCircle, CheckCircle, Clock, Search, MessageCircle } from 'lucide-react'
-import { casesApi } from '../api/client'
+import { casesApi, getApiErrorMessage } from '../api/client'
 import { Badge } from '../components/Badge'
 import type { Case, DispositionRecommendation } from '../types'
 
@@ -29,10 +29,26 @@ export function CaseList() {
   const navigate = useNavigate()
   const [cases, setCases] = useState<Case[]>([])
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
   const [idSearch, setIdSearch] = useState('')
 
   useEffect(() => {
-    casesApi.list().then(setCases).finally(() => setLoading(false))
+    let cancelled = false
+    setLoadError(null)
+    casesApi
+      .list()
+      .then(data => {
+        if (!cancelled) setCases(data)
+      })
+      .catch(err => {
+        if (!cancelled) setLoadError(getApiErrorMessage(err))
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const idQueryDigits = idSearch.replace(/\D/g, '')
@@ -56,11 +72,26 @@ export function CaseList() {
         </button>
       </div>
 
+      {loadError && (
+        <div
+          role="alert"
+          className="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-900"
+        >
+          <p className="font-semibold">Could not load cases from the API</p>
+          <p className="mt-1 text-red-800/90">{loadError}</p>
+          <p className="mt-2 text-xs text-red-700/90">
+            Production: set <code className="rounded bg-red-100 px-1">VITE_API_URL</code> in Vercel to your Railway API
+            origin (e.g. <code className="rounded bg-red-100 px-1">https://…up.railway.app</code>), redeploy, and add
+            this Vercel URL to Railway <code className="rounded bg-red-100 px-1">ALLOWED_ORIGINS</code>.
+          </p>
+        </div>
+      )}
+
       {loading ? (
         <div className="flex items-center justify-center h-48">
           <Loader2 size={28} className="animate-spin text-blue-400" />
         </div>
-      ) : cases.length === 0 ? (
+      ) : loadError ? null : cases.length === 0 ? (
         <div className="text-center py-20 text-slate-400">
           <FileText size={48} className="mx-auto mb-4 opacity-40" />
           <p className="text-lg font-medium mb-1">No cases yet</p>

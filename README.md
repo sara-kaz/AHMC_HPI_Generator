@@ -293,7 +293,7 @@ App at http://localhost:5173. Vite proxies `/api` to port 8000 in dev. For produ
    |------|--------|
    | `VITE_API_URL` | The Railway API origin **only** — e.g. `https://ahmc-hpi-production.up.railway.app` — **no trailing slash**. |
 
-5. Deploy. If the API was not in `ALLOWED_ORIGINS` yet, add your production Vercel URL to Railway **`ALLOWED_ORIGINS`** and trigger a **Redeploy** on the backend service.
+5. Deploy. **`VITE_API_URL` is injected at build time** — if you add or change it later, open **Deployments → … → Redeploy** so the new value is compiled in. If the app shell loads but data never appears, the list page shows an API error banner; otherwise check the browser **Network** tab: requests to `/api/...` should go to your **Railway** host (not `vercel.app`). If the API was not in `ALLOWED_ORIGINS` yet, add your production Vercel URL to Railway **`ALLOWED_ORIGINS`** and **redeploy the backend**.
 
 6. **SPA routing:** `frontend/vercel.json` rewrites unknown paths to `index.html` so deep links like `/cases/123` work on refresh.
 
