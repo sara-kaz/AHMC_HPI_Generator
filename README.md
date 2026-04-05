@@ -4,15 +4,16 @@ Take-home exercise for AHMC. The goal: take messy ER notes and H&P documents and
 
 ## Live Demo
 
-Deploy the backend first, then the frontend, then paste your public URLs here:
+**Share these links** with reviewers (no login required unless you enable Vercel deployment protection). Anyone with the URL can use the app; the API must allow that origin via **`ALLOWED_ORIGINS`** on Railway (production URL below, plus any preview URL you share—comma-separated).
 
 | | URL |
 |---|-----|
-| **App (Vercel)** | _https://your-app.vercel.app_ |
-| **API (Railway)** | _https://your-service.up.railway.app_ |
-| **API docs** | _https://your-service.up.railway.app/docs_ |
+| **App (Vercel — production)** | [https://ahmc-hpi-generator.vercel.app](https://ahmc-hpi-generator.vercel.app) |
+| **App (Vercel — branch preview)** | [https://ahmc-hpi-generator-git-master-sara-kazs-projects.vercel.app](https://ahmc-hpi-generator-git-master-sara-kazs-projects.vercel.app) |
+| **API (Railway)** | [https://web-production-843a9.up.railway.app](https://web-production-843a9.up.railway.app) |
+| **API docs** | [https://web-production-843a9.up.railway.app/docs](https://web-production-843a9.up.railway.app/docs) |
 
-See **[Deployment](#deployment)** below for the full checklist.
+See **[Deployment](#deployment)** below for env vars (`VITE_API_URL`, `ALLOWED_ORIGINS`).
 
 ---
 
