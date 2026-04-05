@@ -304,9 +304,15 @@ App at http://localhost:5173. Vite proxies `/api` to port 8000 in dev. For produ
 - Paste the Vercel and Railway URLs into the [Live Demo](#live-demo) table at the top of this README.
 - If the UI shows CORS or network errors, verify **`VITE_API_URL`** matches the Railway URL exactly (scheme + host) and **`ALLOWED_ORIGINS`** on Railway includes your Vercel origin.
 
-### Monorepo alternative (single Railway service from repo root)
+### Monorepo alternative (Railway / Railpack from repo root)
 
-If the Railway service **root directory** is the repository root instead of `backend/`, use the repo-root **`Procfile`**: it runs `uvicorn` with `--app-dir backend`. Prefer the `backend/` root directory setup above unless your host requires running from the monorepo root.
+If the service **root directory** is the **repository root** (not `backend/`), builders such as **Railpack** need a Python project at the root or they fail with “could not determine how to build the app.” This repo includes:
+
+- **`requirements.txt`** at the repo root with `-r backend/requirements.txt` (so `pip install` pulls the real deps from `backend/`)
+- **`runtime.txt`** at the repo root (Python version, aligned with `backend/runtime.txt`)
+- **`Procfile`** at the repo root: `uvicorn main:app --app-dir backend --host 0.0.0.0 --port $PORT`
+
+**Recommended:** still set Railway **Root directory** to **`backend`** and use `backend/Procfile` if you can—simpler and avoids duplicate root shims. Use the root layout only when the platform insists on deploying from the monorepo root.
 
 ---
 
@@ -378,7 +384,9 @@ I **avoided overfitting to Case A** by **not** adding rules that require copying
 
 ```
 ahmc-hpi/
-├── Procfile                 # Railway from repo root only: `--app-dir backend`
+├── Procfile                 # Railway from repo root: `--app-dir backend`
+├── requirements.txt         # Root shim: `-r backend/requirements.txt` (Railpack / root deploys)
+├── runtime.txt              # Python version when deploying from repo root
 ├── backend/
 │   ├── Procfile             # Railway with root directory `backend/`: uvicorn on $PORT
 │   ├── main.py              # FastAPI app, routes, clarification + generation orchestration

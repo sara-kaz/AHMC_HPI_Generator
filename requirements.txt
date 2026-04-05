@@ -1,0 +1,2 @@
+# Root shim so Railway / Railpack detect Python when the service root is the repo (not `backend/`).
+-r backend/requirements.txt
