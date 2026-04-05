@@ -182,6 +182,17 @@ class ClarifyRequest(BaseModel):
 # Routes
 # ─────────────────────────────────────────────────────────────────────────────
 
+@app.get("/")
+def root():
+    """Opening the API base URL in a browser is not an error — use /health or /docs for checks."""
+    return {
+        "service": "AHMC Clinical HPI Generator API",
+        "health": "/health",
+        "docs": "/docs",
+        "cases": "/api/cases",
+    }
+
+
 @app.get("/health")
 def health():
     return {"status": "ok"}
