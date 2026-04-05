@@ -176,7 +176,7 @@ EXPECTED OUTPUT:
   "disposition_recommendation": "Admit",
   "admission_criteria_met": [
     "DKA with pH 7.20 (<7.30) — meets acidosis criterion",
-    "Serum bicarbonate 7.4 mEq/L (<15 mEq/L) — meets severe DKA criterion for inpatient over observation",
+    "Serum bicarbonate 7.4 mmol/L (<15 mEq/L per guideline) — meets severe DKA criterion for inpatient over observation",
     "Euglycemic DKA risk factor: active SGLT2 inhibitor use (Jardiance)",
     "Large serum and urine ketones — meets ketonemia/ketonuria criterion",
     "Continuous IV insulin infusion required",
@@ -213,6 +213,7 @@ TRANSFORMATION RULES:
 - **Named syndromes (general):** Do **not** infer a specific syndrome (e.g. euglycemic DKA) from **one** isolated lab such as a normal glucose. Use a named diagnosis in narrative or lists **only** if the **source notes** use that language or document the full clinical picture the label implies. If the notes say **DKA** without **euglycemic**, do **not** upgrade the label to euglycemic DKA unless documentation supports it.
 - **Multi-lab sentences:** When ketones, acid–base abnormalities, and glucose all appear in the notes, keep **domains distinct**: ketones and acidosis belong together; glucose is **not** evidence of acidosis and should not be phrased as if pH "were euglycemic." Paraphrase the chart in your own words; do **not** copy a fixed template from the few-shot example verbatim when a different structure fits the note equally well.
 - **Distinct results and terms (do not fuse):** Whenever the chart lists **separate** findings—labs, vitals, impressions, diagnoses, or named tests on **different lines** or under **different labels**—**do not** collapse them into one paraphrase that **changes meaning**, **drops a documented value**, **invents a single merged number**, **blurs two different tests or concepts**, or **relabels one finding with another’s wording**. **Each** item should remain **traceable** to a specific part of the source (value, inequality, unit, name). If the note gives two distinct results, your narrative should **preserve that separation** (e.g. two clauses or sentences) unless the chart itself ties them together in one phrase.
+- **ABG bicarbonate (HCO3) vs chemistry CO2 / total CO2:** The chart often lists **HCO3** (or “bicarb”) from an ABG with a **specific number** (e.g. **7.4 mmol/L**) **and** a separate chemistry line **CO2 less than 7** (total CO2, mmol/L). These are **different rows**. **Never** write “serum bicarbonate less than 7” or “bicarbonate under 7 mEq/L” when **HCO3 is documented as 7.4** — that incorrectly applies the **CO2** inequality to **bicarbonate**. State **bicarbonate** using the **HCO3 value and unit** from the source (e.g. bicarbonate **7.4 millimoles per liter**), and state **CO2** (or serum total CO2) **separately** (e.g. serum carbon dioxide **less than 7 millimoles per liter**) when that line exists. Do not merge two numbers into one. If a free-text line says "bicarb <7" but **structured labs** list **HCO3 7.4** and **CO2 <7**, follow the **structured values** — do not treat "bicarb <7" as overriding the numeric HCO3.
 - **When something is missing:** Say "not documented" or "unknown" in narrative fields where appropriate; add a bullet to **uncertainties** instead of guessing. Keep **key_findings** and lists limited to what the notes support; use fewer items rather than padding with invented content.
 - **Revised HPI:** Build only from documented facts and allowed inferences above. If critical facts are missing, write a shorter, honest narrative that does not invent them—do not fabricate demographics or labs to satisfy the MCG narrative shape.
 - Use precise medical language and **quote or paraphrase values exactly as documented** when present.
@@ -252,6 +253,7 @@ JSON OUTPUT RULES (required):
 - In every string value, escape internal double-quotes as backslash-quote (\\"). Never leave a string open-ended.
 - Prefer short clause-style sentences in revised_hpi so the object stays valid; avoid pasting raw chart text with quotes inside a JSON string.
 - In **revised_hpi**, never join acid–base/ketone findings and serum glucose with **while** / **whereas** / **although** in one sentence — separate sentences (see TRANSFORMATION RULES).
+- In **revised_hpi** and **key_findings**, if **HCO3** is a **stated number** (e.g. 7.4 mmol/L) **and** **CO2** is a **separate** line (e.g. less than 7), do **not** call bicarbonate “less than 7” — keep **bicarbonate** and **CO2** as separate phrases (see **ABG bicarbonate vs chemistry CO2**).
 - Include all keys through follow_up_questions; the JSON must be complete.
 
 FOLLOW-UP QUESTIONS (follow_up_questions):
