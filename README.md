@@ -309,7 +309,7 @@ App at http://localhost:5173. Vite proxies `/api` to port 8000 in dev. For produ
 If the service **root directory** is the **repository root** (not `backend/`), builders such as **Railpack** need a Python project at the root or they fail with “could not determine how to build the app.” This repo includes:
 
 - **`requirements.txt`** at the repo root with `-r backend/requirements.txt` (so `pip install` pulls the real deps from `backend/`)
-- **`runtime.txt`** at the repo root (Python version, aligned with `backend/runtime.txt`)
+- **`runtime.txt`** at the repo root (Python **3.11.x** patch release, aligned with `backend/runtime.txt`; pinned to a version **mise** ships as prebuilt on Linux—avoid `3.11.0`, which often has no precompiled binary)
 - **`Procfile`** at the repo root: `uvicorn main:app --app-dir backend --host 0.0.0.0 --port $PORT`
 
 **Recommended:** still set Railway **Root directory** to **`backend`** and use `backend/Procfile` if you can—simpler and avoids duplicate root shims. Use the root layout only when the platform insists on deploying from the monorepo root.
