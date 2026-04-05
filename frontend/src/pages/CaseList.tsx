@@ -80,9 +80,11 @@ export function CaseList() {
           <p className="font-semibold">Could not load cases from the API</p>
           <p className="mt-1 text-red-800/90">{loadError}</p>
           <p className="mt-2 text-xs text-red-700/90">
-            Production: set <code className="rounded bg-red-100 px-1">VITE_API_URL</code> in Vercel to your Railway API
-            origin (e.g. <code className="rounded bg-red-100 px-1">https://…up.railway.app</code>), redeploy, and add
-            this Vercel URL to Railway <code className="rounded bg-red-100 px-1">ALLOWED_ORIGINS</code>.
+            <strong>Vercel:</strong> <code className="rounded bg-red-100 px-1">VITE_API_URL</code> must be set for the
+            same environment you are viewing (Production vs Preview), then <strong>Redeploy</strong>.{' '}
+            <strong>Railway:</strong> <code className="rounded bg-red-100 px-1">ALLOWED_ORIGINS</code> must include this
+            page&apos;s origin, or set <code className="rounded bg-red-100 px-1">ALLOWED_ORIGINS_REGEX</code> to{' '}
+            <code className="rounded bg-red-100 px-1">^https://.*\.vercel\.app$</code> — then redeploy backend.
           </p>
         </div>
       )}
