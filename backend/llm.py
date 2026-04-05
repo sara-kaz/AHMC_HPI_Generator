@@ -206,7 +206,7 @@ ADMISSION CRITERIA REFERENCE:
 {MCG_CRITERIA}
 
 TRANSFORMATION RULES:
-- **No fabrication:** Do not state age, sex, vitals, labs, medications, allergies, past medical history, timing, staff actions, or disposition unless they appear in the ER/H&P notes or in the CLINICIAN-PROVIDED SUPPLEMENT below. Do not "fill in" plausible but undocumented details to make the narrative sound complete.
+- **No fabrication:** Do not state age, **patient sex or gender**, vitals, labs, medications, allergies, past medical history, timing, staff actions, or disposition unless they appear in the ER/H&P notes or in the CLINICIAN-PROVIDED SUPPLEMENT below. Do not "fill in" plausible but undocumented details to make the narrative sound complete.
 - **Inference:** You may only draw **clinical inferences that chain documented data** (e.g. acidosis from documented pH and bicarbonate together). Do not infer **patient-specific** facts that are not written or clearly implied by the text (e.g. do not guess age, comorbidities, or home medications if absent).
 - **Glucose vs acid–base terminology (general):** **Euglycemic** and **euglycemic range** refer **only** to **blood glucose**. They do **not** apply to pH, bicarbonate, pCO₂, anion gap, or the words **acidosis** / **metabolic acidosis**. Do **not** write that acidosis or a pH value is **"in the euglycemic range"** or otherwise mix glucose vocabulary with acid–base results. Describe acid–base using the values and terms the chart provides; describe glucose separately (second sentence or clause, or a **while** / **;** after acid–base content is complete).
 - **Named syndromes (general):** Do **not** infer a specific syndrome (e.g. euglycemic DKA) from **one** isolated lab such as a normal glucose. Use a named diagnosis in narrative or lists **only** if the **source notes** use that language or document the full clinical picture the label implies. If the notes say **DKA** without **euglycemic**, do **not** upgrade the label to euglycemic DKA unless documentation supports it.
@@ -228,13 +228,21 @@ MANDATORY DOCUMENTATION CHECKLIST (do not skip — scan the full ER and H&P text
      - You **MUST** include **"What is the patient's age?"** (or equivalent) as the **first** entry in **follow_up_questions**, and you **MUST** add a **second** follow-up question for the next most critical gap (e.g. blank disposition below, or confirming disposition intent).
    - If age appears in either note, do not add the age-not-documented uncertainty.
 
-2. **Disposition and impression (structured fields vs narrative)**
+2. **Patient sex / gender**
+   - Look for explicit documentation (e.g. male/female, man/woman, M/F, "34 y/o male", pronouns tied to the patient in demographics). If **no sex or gender appears anywhere** in the combined notes:
+     - You **MUST** add to **uncertainties**: "Patient sex or gender not documented in the source notes."
+     - You **MUST NOT** state the patient's sex or gender in **chief_complaint**, **hpi_summary**, or **revised_hpi** (use neutral phrasing: "the patient", "they" if consistent with your style, or repeat diagnosis-focused language without gendered labels).
+     - You **MUST** include **"What is the patient's sex or gender?"** (or equivalent) in **follow_up_questions** — **priority:** if age is **also** missing per (1), put the **age** question **first** and this **second**; if age **is** documented but sex/gender is not, put this question **first** in **follow_up_questions**, and add a **second** question for the next most critical gap (e.g. disposition per below).
+   - If sex/gender appears in either note, do not add the sex/gender-not-documented uncertainty.
+
+3. **Disposition and impression (structured fields vs narrative)**
    - If the ER note shows **blank or empty IMPRESSION and/or DISPOSITION** sections (or clearly unfilled lines), you **MUST** add an uncertainty stating that those structured fields were not completed in the source, **and** briefly state whether disposition or disposition intent appears elsewhere (e.g. MDM, Assessment/Plan, "Admit ICU").
    - If **no** disposition or disposition intent appears **anywhere** in the combined ER+H&P text, set **disposition_recommendation** to **"Unknown"**, add an uncertainty that disposition was not documented, and include a follow-up question asking for the documented disposition or disposition intent.
    - Do **not** invent a disposition in **revised_hpi** that is not supported by the text; if you infer from MDM/plan, say so explicitly (e.g. "Disposition header blank; plan documents ICU admission").
 
-3. **follow_up_questions length**
-   - Whenever patient age is missing per (1), **follow_up_questions must contain at least two questions** (age + one other critical gap). Never return an empty follow_up_questions if age was not documented.
+4. **follow_up_questions length**
+   - Whenever patient age is missing per (1), **follow_up_questions must contain at least two questions** (age + one other critical gap — use sex/gender per (2) if that is also missing, otherwise disposition or the next critical gap). Never return an empty follow_up_questions if age was not documented.
+   - Whenever patient sex/gender is missing per (2) but age **is** documented, **follow_up_questions must contain at least two questions** (sex/gender **first**, then another critical gap such as disposition). Never return an empty follow_up_questions if sex/gender was not documented while age was present.
 
 {CASE_A_EXAMPLE}
 
@@ -245,9 +253,10 @@ JSON OUTPUT RULES (required):
 - Include all keys through follow_up_questions; the JSON must be complete.
 
 FOLLOW-UP QUESTIONS (follow_up_questions):
-- **Prefer asking over guessing** — never fabricate age or disposition; see MANDATORY DOCUMENTATION CHECKLIST above.
-- **When age is not documented:** you must use a **non-empty** follow_up_questions array with **at least two** questions (first asks for age; second asks for another critical gap such as disposition if the structured disposition/impression is blank or ambiguous).
-- **When age is documented** but notes are otherwise critically sparse (multiple pillars missing, no key labs, etc.), you may still use follow_up_questions with **at least two** items, or rely on **uncertainties** if a single non-critical fact is missing.
+- **Prefer asking over guessing** — never fabricate age, sex/gender, or disposition; see MANDATORY DOCUMENTATION CHECKLIST above.
+- **When age is not documented:** you must use a **non-empty** follow_up_questions array with **at least two** questions (first asks for age; second asks for sex/gender if that is also missing, otherwise disposition or another critical gap).
+- **When age is documented but sex/gender is not:** you must use a **non-empty** follow_up_questions array with **at least two** questions (first asks for sex/gender; second asks for another critical gap such as disposition).
+- **When age is documented** and sex/gender is documented but notes are otherwise critically sparse (multiple pillars missing, no key labs, etc.), you may still use follow_up_questions with **at least two** items, or rely on **uncertainties** if a single non-critical fact is missing.
 - Questions must request **missing factual data**, not editorial opinion.
 - If a "CLINICIAN-PROVIDED SUPPLEMENT" section exists below, do not ask for information already answered there.
 
