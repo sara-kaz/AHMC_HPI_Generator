@@ -4,8 +4,15 @@ Take-home exercise for AHMC. The goal: take messy ER notes and H&P documents and
 
 ## Live Demo
 
-> **Frontend:** [Vercel link — add after deployment]
-> **Backend API:** [Railway link — add after deployment]
+Deploy the backend first, then the frontend, then paste your public URLs here:
+
+| | URL |
+|---|-----|
+| **App (Vercel)** | _https://your-app.vercel.app_ |
+| **API (Railway)** | _https://your-service.up.railway.app_ |
+| **API docs** | _https://your-service.up.railway.app/docs_ |
+
+See **[Deployment](#deployment)** below for the full checklist.
 
 ---
 
@@ -17,7 +24,7 @@ You paste in an ER note and/or H&P, click generate, and get back:
 - A Revised HPI written as a coherent narrative that builds toward and supports the admission decision
 - Every field is editable in the UI, with a visual distinction between what the model generated and what you changed
 - Cases are saved so you can come back and review them
-- **Optional:** if the chart is *critically* thin, the model may ask for follow-up details (only after **two or more** questions — see `MIN_FOLLOW_UP_QUESTIONS`). Normal notes just finish; small gaps go in **uncertainties**, not a questionnaire.
+- **Optional clarification path:** if the model returns enough follow-up questions (default **≥2**, tunable via `MIN_FOLLOW_UP_QUESTIONS`), the case moves to **`awaiting_clarification`**, the detail page shows a short form, and **`POST /api/cases/:id/clarify`** resubmits answers as a supplement block for the next generation. Otherwise generation completes with status **`completed`**; thin charts without that threshold still record gaps in **`uncertainties`**.
 
 The **Load Case B** button on the new case page pre-fills the evaluation case from the exercise so you can test immediately.
 
@@ -26,33 +33,37 @@ The **Load Case B** button on the new case page pre-fills the evaluation case fr
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        USER BROWSER                             │
-│  React + Vite + Tailwind CSS                                    │
-│  ┌───────────┐ ┌──────────────┐ ┌───────────────────────────┐   │
-│  │ CaseList  │ │ NewCase      │ │ CaseDetail                │   │
-│  │ list + ID │ │ notes + opt. │ │ case ID, edit title,      │   │
-│  │ search    │ │ manual ID    │ │ view/edit structured out  │   │
-│  └───────────┘ └──────────────┘ └───────────────────────────┘   │
-└────────────────────────┬────────────────────────────────────────┘
-                         │ REST API (axios)
-┌────────────────────────▼────────────────────────────────────────┐
-│                   FASTAPI BACKEND                               │
-│  Python 3.9+ · Uvicorn · SQLAlchemy · SQLite                    │
-│                                                                 │
-│  POST /api/cases                — create case                   │
-│  POST /api/cases/:id/generate   — call LLM, store output        │
-│  PUT  /api/cases/:id            — save edits                    │
-│  GET  /api/cases                — list all cases                │
-│  GET  /api/cases/:id            — get one case                  │
-│  DELETE /api/cases/:id          — delete case                   │
-└────────────────────────┬────────────────────────────────────────┘
-                         │ Anthropic Python SDK
-┌────────────────────────▼────────────────────────────────────────┐
-│              ANTHROPIC API (claude-sonnet-4-6)                  │
-│  System prompt: MCG criteria + Case A few-shot example          │
-│  Output: structured JSON → parsed into relational DB tables     │
-└─────────────────────────────────────────────────────────────────┘
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                        USER BROWSER                             │
+    │  React + Vite + Tailwind CSS                                    │
+    │  ┌───────────┐ ┌──────────────┐ ┌───────────────────────────┐   │
+    │  │ CaseList  │ │ NewCase      │ │ CaseDetail                │   │
+    │  │ list + ID │ │ notes + opt. │ │ edit title, structured out│   │
+    │  │ search    │ │ manual ID    │ │ regenerate, clarify Q&A   │   │
+    │  └───────────┘ └──────────────┘ └───────────────────────────┘   │
+    └────────────────────────┬────────────────────────────────────────┘
+                             │ REST API (axios)
+┌────────────────────────────▼────────────────────────────────────────────┐
+│                   FASTAPI BACKEND                                       │
+│  Python 3.9+ · Uvicorn · SQLAlchemy · SQLite                            │
+│                                                                         │
+│  POST /api/cases                  — create case (optional body `id`)    │
+│  POST /api/cases/:id/generate     — LLM; may set awaiting_clarification │
+│  POST /api/cases/:id/clarify      — answers → regenerate with supplement│
+│  PUT  /api/cases/:id              — title, structured_output, edits     │
+│  GET  /api/cases                  — list (batched structured reads)     │
+│  GET  /api/cases/:id              — one case                            │
+│  DELETE /api/cases/:id            — delete (cascades clinical rows)     │
+│  POST /api/generate               — ad-hoc JSON only (nothing saved)    │
+│  GET  /health                     — liveness                            │
+└───────────────────────────┬─────────────────────────────────────────────┘
+                            │ Anthropic Python SDK
+   ┌────────────────────────▼──────────────────────────────────────────┐
+   │              ANTHROPIC API (claude-sonnet-4-6)                    │
+   │  System prompt: MCG criteria + Case A few-shot example            │
+   │  Model JSON: clinical fields + follow_up_questions; scalars/lists │
+   │  → relational tables + Case JSON cache; follow-ups on Case row    │
+   └───────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -88,7 +99,7 @@ SYSTEM:
   - MCG Diabetes admission criteria (verbatim thresholds)
   - Transformation rules: no invented facts, cite exact lab values, flag gaps
   - Case A as few-shot example
-  - JSON schema (all 8 fields required)
+  - JSON schema: 8 clinical fields plus **`follow_up_questions`** (array of strings; may be empty)
 
 USER:
   === ER NOTE ===
@@ -117,6 +128,8 @@ The `uncertainties` field is required in every output. The model is told not to 
 
 ## Structured output fields
 
+These eight fields are what gets persisted in **`clinical_structured_outputs`**, **`clinical_list_items`**, and the denormalized **`cases.structured_output`** cache. The LLM also returns **`follow_up_questions`**; the backend uses it to decide whether to pause for clarification, then **strips it before persistence** (questions and any **`supplemental_answers`** live on the **`cases`** row instead).
+
 | Field | What it captures |
 |-------|-----------------|
 | `chief_complaint` | Primary reason for the ED visit |
@@ -128,6 +141,21 @@ The `uncertainties` field is required in every output. The model is told not to 
 | `uncertainties` | What's missing or unclear from the notes |
 | `revised_hpi` | The full admission-supporting narrative |
 
+| Case-level (not in relational clinical tables) | What it captures |
+|-------|-----------------|
+| `follow_up_questions` | Questions from the last generation when status is **`awaiting_clarification`** |
+| `supplemental_answers` | Map of question → answer text, filled when the user submits the clarification form |
+
+### Generation statuses
+
+| Status | Meaning |
+|--------|---------|
+| `pending` | Created, not yet generated |
+| `generating` | LLM call in progress |
+| `completed` | Structured output saved; no clarification pause |
+| `awaiting_clarification` | Model returned enough follow-up questions; answer via **`POST /api/cases/:id/clarify`** |
+| `failed` | Error stored in **`generation_error`** |
+
 ---
 
 ## Database schema
@@ -136,11 +164,11 @@ The structured output is stored in relational tables (not just a JSON blob), wit
 
 | Table | What's in it |
 |-------|-------------|
-| `cases` | Case metadata, raw notes, generation status, `edited_fields`, JSON cache |
-| `clinical_structured_outputs` | One row per case: `chief_complaint`, `hpi_summary`, `disposition_recommendation`, `revised_hpi` |
-| `clinical_list_items` | One row per bullet: `key_findings`, `suspected_conditions`, `admission_criteria_met`, `uncertainties` |
+| `cases` | Title, raw `er_note` / `hp_note`, `edited_fields`, **`generation_status`**, **`generation_error`**, **`follow_up_questions`**, **`supplemental_answers`**, denormalized **`structured_output`** JSON cache |
+| `clinical_structured_outputs` | One row per case: scalar fields (`chief_complaint`, `hpi_summary`, `disposition_recommendation`, `revised_hpi`) |
+| `clinical_list_items` | One row per bullet: `key_findings`, `suspected_conditions`, `admission_criteria_met`, `uncertainties` (ordered by `sort_order`) |
 
-Foreign keys cascade on delete. SQLite runs with `PRAGMA foreign_keys=ON`. On startup, any cases with only the old JSON column get migrated into the relational tables automatically.
+Foreign keys cascade on delete. SQLite runs with `PRAGMA foreign_keys=ON`. On startup: **`migrate_legacy_json_rows`** copies any JSON-only rows into the relational tables; **`_sqlite_add_columns_if_missing`** adds `follow_up_questions` and `supplemental_answers` to older SQLite DBs if they predate those columns.
 
 ### Case identity
 
@@ -192,7 +220,7 @@ API docs at http://localhost:8000/docs
 | Variable | Required | Notes |
 |----------|----------|-------|
 | `ANTHROPIC_API_KEY` | Yes | No quotes. Restart uvicorn after changing. |
-| `ANTHROPIC_MODEL` | No | Default: `claude-sonnet-4-6` |
+| `ANTHROPIC_MODEL` | No | Overrides the default in `llm.py` (`claude-sonnet-4-6`) |
 | `ANTHROPIC_MAX_TOKENS` | No | Default: 8192. Increase if you get truncated JSON on long notes. |
 | `MIN_FOLLOW_UP_QUESTIONS` | No | Default: **2**. The optional “missing info” question UI only appears when the model returns at least this many follow-up questions; otherwise gaps stay in `uncertainties` and generation completes normally. |
 | `DATABASE_URL` | No | Default: `sqlite:///./cases.db` |
@@ -206,7 +234,7 @@ npm install
 npm run dev
 ```
 
-App at http://localhost:5173. Vite proxies `/api` to port 8000 in dev. For production, set `VITE_API_URL` to the deployed backend URL.
+App at http://localhost:5173. Vite proxies `/api` to port 8000 in dev. For production builds (`npm run build`), set **`VITE_API_URL`** to the full backend origin (see `frontend/.env.example`).
 
 ### Quick test
 
@@ -219,17 +247,66 @@ App at http://localhost:5173. Vite proxies `/api` to port 8000 in dev. For produ
 
 ## Deployment
 
-### Backend → Railway
+### Overview
 
-1. New project → link this repo, root directory: `backend/`
-2. Set env vars: `ANTHROPIC_API_KEY`, `ALLOWED_ORIGINS=https://your-vercel-app.vercel.app`
-3. Railway picks up `requirements.txt` automatically
+| Piece | Platform | Why |
+|-------|----------|-----|
+| FastAPI API | [Railway](https://railway.app) | Simple Python deploy, `PORT`, HTTPS URL |
+| React SPA | [Vercel](https://vercel.com) | Vite build, global CDN, SPA routing via `frontend/vercel.json` |
 
-### Frontend → Vercel
+**CORS:** The browser loads the UI from Vercel and calls the API on another origin, so the backend **must** list your Vercel URL in **`ALLOWED_ORIGINS`** (comma-separated if you add preview URLs later).
 
-1. Import repo → root directory: `frontend/`
-2. Set `VITE_API_URL=https://your-railway-backend.railway.app`
-3. Deploy
+**Database:** The default **`DATABASE_URL`** is SQLite (`cases.db` in the service working directory). It is fine for a demo; data can reset if the container is redeployed or replaced. For durable storage, point **`DATABASE_URL`** at a managed Postgres and add a driver (e.g. `psycopg[binary]`) — SQLAlchemy already supports it.
+
+---
+
+### 1. Backend (Railway)
+
+1. Create a [Railway](https://railway.app) project → **Deploy from GitHub** → select this repo.
+2. **Settings → Service → Root directory:** `backend`  
+   (Railway runs from that folder so `main:app` and `requirements.txt` resolve correctly.)
+3. **Settings → Deploy → Custom start command** (if not inferred):  
+   `uvicorn main:app --host 0.0.0.0 --port $PORT`  
+   (A `backend/Procfile` with the same command is included for compatibility.)
+4. **Variables** (minimum):
+
+   | Name | Value |
+   |------|--------|
+   | `ANTHROPIC_API_KEY` | Your key from [Anthropic Console](https://console.anthropic.com/settings/keys) (no quotes). |
+   | `ALLOWED_ORIGINS` | Your Vercel app URL, e.g. `https://ahmc-hpi.vercel.app` — add **after** step 2 below if needed, then redeploy. |
+
+   Optional: `ANTHROPIC_MODEL`, `ANTHROPIC_MAX_TOKENS`, `MIN_FOLLOW_UP_QUESTIONS`, `DATABASE_URL`.
+
+5. Deploy and wait for a successful build. Open **Settings → Networking → Generate domain** (or use the default `*.up.railway.app` URL). Copy the **HTTPS** public URL — this is your API base (e.g. `https://ahmc-hpi-production.up.railway.app`).
+6. Sanity check: visit `https://<your-api-host>/health` → `{"status":"ok"}` and `https://<your-api-host>/docs` for OpenAPI.
+
+---
+
+### 2. Frontend (Vercel)
+
+1. [Vercel](https://vercel.com) → **Add New… → Project** → import the same GitHub repo.
+2. **Root directory:** `frontend`
+3. **Framework preset:** Vite (auto-detected). Build: `npm run build`, output: `dist`.
+4. **Environment variables:**
+
+   | Name | Value |
+   |------|--------|
+   | `VITE_API_URL` | The Railway API origin **only** — e.g. `https://ahmc-hpi-production.up.railway.app` — **no trailing slash**. |
+
+5. Deploy. If the API was not in `ALLOWED_ORIGINS` yet, add your production Vercel URL to Railway **`ALLOWED_ORIGINS`** and trigger a **Redeploy** on the backend service.
+
+6. **SPA routing:** `frontend/vercel.json` rewrites unknown paths to `index.html` so deep links like `/cases/123` work on refresh.
+
+---
+
+### 3. After deploy
+
+- Paste the Vercel and Railway URLs into the [Live Demo](#live-demo) table at the top of this README.
+- If the UI shows CORS or network errors, verify **`VITE_API_URL`** matches the Railway URL exactly (scheme + host) and **`ALLOWED_ORIGINS`** on Railway includes your Vercel origin.
+
+### Monorepo alternative (single Railway service from repo root)
+
+If the Railway service **root directory** is the repository root instead of `backend/`, use the repo-root **`Procfile`**: it runs `uvicorn` with `--app-dir backend`. Prefer the `backend/` root directory setup above unless your host requires running from the monorepo root.
 
 ---
 
@@ -242,6 +319,7 @@ App at http://localhost:5173. Vite proxies `/api` to port 8000 in dev. For produ
 | Claude Code | Generated the initial backend and frontend skeleton to get moving quickly |
 | Claude claude-sonnet-4-6 (runtime) | Powers the actual note analysis and HPI generation in the app |
 | Cursor | Used for debugging and iterating on features after the initial scaffold |
+| ChatGPT | Used for medical terminology and clarification |
 
 ### What AI generated
 
@@ -253,21 +331,35 @@ The scaffolding prompt for the backend was roughly: *"FastAPI app with SQLite fo
 
 **The clinical prompt** — This was the most important part and the AI couldn't do it for me. I read through the Case A reference document carefully, including the sentence-by-sentence comparison table, to understand the transformation pattern: why each sentence was included, which MCG criteria it addressed, and how the narrative builds toward justifying admission. I then wrote the system prompt from scratch — the MCG criteria condensation, the six-sentence arc, the rules about citing exact values, and the instruction to flag missing information rather than fill it in.
 
-**The database schema** — The scaffold stored everything as a single JSON blob. I replaced that with proper relational tables: `clinical_structured_outputs` for the scalar fields and `clinical_list_items` for the bulleted lists, with cascade delete and SQLite foreign key enforcement. I also wrote the `clinical_storage.py` module that handles persisting to and reading from those tables, keeping a JSON cache in sync for fast list reads, and migrating any old JSON-only rows on startup.
+**The database schema** — The scaffold stored everything as a single JSON blob. I replaced that with proper relational tables: `clinical_structured_outputs` for the scalar fields and `clinical_list_items` for the bulleted lists, with cascade delete and SQLite foreign key enforcement. I also wrote the `clinical_storage.py` module that handles persisting to and reading from those tables, keeping a JSON cache in sync (including **batched** reads for the case list), migrating any old JSON-only rows on startup, and SQLite column migration for **`follow_up_questions`** / **`supplemental_answers`** on older files.
+
+**Clarification workflow** — `main.py` implements `_run_generation` (LLM → persist scalars/lists → set status to **`completed`** or **`awaiting_clarification`** based on `MIN_FOLLOW_UP_QUESTIONS`), **`POST /clarify`** to merge ordered answers into **`supplemental_answers`** and re-run with a formatted supplement block passed into **`llm.generate_structured_output`**, and the case detail UI for answering questions before a second generation.
 
 **Edit tracking** — The `edited_fields` string array on the case, and the logic that reads it to toggle between the `🤖 AI` and `✏️ Edited` badges in the UI. Simple mechanism but it required thinking through the round-trip: generate → display → edit → save → reload should all stay consistent.
 
 **Error handling and robustness** — Added `json-repair` after noticing the model occasionally produces near-valid JSON that `json.loads` rejects outright (usually unescaped quotes inside field values). The flow is: strict parse → repair fallback → clear error message if both fail. Also wired up proper error surfacing from the Anthropic API (auth failures, token limit hits) through to the UI so errors are readable rather than just a 500.
 
-**Frontend feature additions** — Case ID search on the list page, inline title editing on the detail page, the regenerate flow with confirmation, and the Case B pre-fill button.
+**Frontend feature additions** — Case ID search on the list page, inline title editing on the detail page, regenerate with confirmation, the clarification form when **`awaiting_clarification`**, and the Case B pre-fill button.
 
 ### How I checked the output
 
-I ran Case A through the system and compared the generated Revised HPI against the human-written version in the reference document. The specific things I checked: all key lab values present and cited correctly (pH 7.20, bicarb 7.4, glucose 93), clinical context included (Kussmaul breathing, SGLT2 inhibitor trigger), escalation documented (insulin drip, bicarbonate, 3L saline, ICU plan), and the MCG criteria in `admission_criteria_met` actually matching the thresholds in the guideline PDF (pH < 7.30, bicarb ≤ 18 mEq/L, 2+ ketonuria). Then tested the edit tracking round-trip and the main error paths.
+**Case A against the reference (with extra data).** I pasted the Case A ER note and H&P from the exercise materials, added a **small amount of extra realistic chart text** (the kind of clutter or add-on lines you might see in a real record), and ran **Generate**. I then compared the model’s **Revised HPI** line by line to the **human-written Revised HPI** in the reference document. For each sentence or clause I marked it in two colors: **green** where the model had **correctly woven in** the extra information without distorting the clinical story, and **red** where it made an **incorrect connection** or **hallucination** (e.g. tying a normal lab to a named syndrome the chart did not support, or inventing facts not present in the source). Those red marks drove concrete edits to **`llm.py`**.
 
-I also tested **thin charts** — notes where important things were left out on purpose (e.g. no age, blank IMPRESSION/DISPOSITION lines). I’d generate once, read the JSON and the Revised HPI, and check whether the model **invented** age or disposition to sound complete, whether **`uncertainties`** actually called out what was missing, and whether the **follow-up question** path fired when it should. Then I used the app’s **clarify / supplemental** flow: I supplied the missing facts (like age or disposition) the way a clinician would, regenerated, and compared the second pass to the first — did it incorporate the new info without contradicting the chart, and did it stop hallucinating gaps?
+Beyond narrative wording, I checked structured fields the same way: key labs cited correctly (pH 7.20, bicarb 7.4, glucose 93 where documented), clinical context (Kussmaul breathing, SGLT2 inhibitor trigger), escalation (insulin drip, bicarbonate, 3L saline, ICU plan), and `admission_criteria_met` aligned with the guideline PDF (pH < 7.30, bicarb ≤ 18 mEq/L, 2+ ketonuria). I also exercised the **edit tracking** round-trip and main API error paths.
 
-When I saw the model **fill in** undocumented demographics or disposition, or stay silent in `uncertainties` while still writing a confident narrative, I treated that as a failure mode and **tightened `llm.py`**: stronger “no fabrication” rules, a mandatory checklist for age and blank disposition fields, and instructions to prefer **uncertainties** and **follow-up questions** over guessing. That iteration loop — run a bad note → inspect output for hallucination → adjust the prompt → re-run — is how the current system prompt got to where it is.
+**From specific Revised HPI problems to generalized rules.** When something in the **Revised HPI** looked wrong, I treated it as a **symptom** of a broader failure mode, not a one-off wording tweak. I wrote **principle-based** instructions in **`llm.py`** so the same class of mistake is discouraged on **any** chart—not only Case A. Examples of that pattern:
+
+| Kind of problem I saw in the output | Generalized rule (intent) |
+|-------------------------------------|---------------------------|
+| Normal glucose used to justify a named syndrome or “euglycemic” wording the chart did not support | Named syndromes and labels only when the **source** supports them; do not infer from a **single** lab. |
+| “Euglycemic” or “euglycemic range” attached to **pH** or **acidosis** (wrong domain—euglycemic means **glucose**) | Glucose-related vocabulary **only** for glucose; acid–base described with pH/bicarbonate/etc., separately. |
+| Two **different** result lines (e.g. bicarbonate value vs chemistry **CO₂**) collapsed into one wrong summary | **Distinct results and terms (do not fuse):** separate chart lines stay **separate** in the narrative; no merged or mislabeled values. |
+
+I **avoided overfitting to Case A** by **not** adding rules that require copying the few-shot **sentence structure** or fixed openers. Case A remains one **example** in the prompt; the **TRANSFORMATION RULES** are stated as **general** constraints (terminology, syndromes, fusing, fabrication, thin-chart behavior). That way the model can still paraphrase naturally for other presentations while respecting the same guardrails.
+
+**Thin charts.** I tested notes where important items were left out on purpose (e.g. no age, blank IMPRESSION/DISPOSITION). I’d generate once, read the JSON and the Revised HPI, and check whether the model **invented** age or disposition, whether **`uncertainties`** called out what was missing, and whether the **follow-up question** path fired when it should. I used the app’s **clarify / supplemental** flow: supplied missing facts as a clinician would, regenerated, and compared the second pass to the first—did it incorporate the new info without contradicting the chart?
+
+**Iteration.** Whenever red marks or thin-chart failures pointed to the same failure mode, I **tightened the system prompt** in **`llm.py`**: stronger “no fabrication” rules, the mandatory age and disposition checklist, preference for **uncertainties** and **follow-up questions** over guessing, and the **general** rules above. The loop—**run → spot a bad Revised HPI → name the pattern → add a generalized rule → re-run**—is how the current prompt reached its present form.
 
 ---
 
@@ -286,15 +378,20 @@ When I saw the model **fill in** undocumented demographics or disposition, or st
 
 ```
 ahmc-hpi/
+├── Procfile                 # Railway from repo root only: `--app-dir backend`
 ├── backend/
-│   ├── main.py              # FastAPI app and all routes
+│   ├── Procfile             # Railway with root directory `backend/`: uvicorn on $PORT
+│   ├── main.py              # FastAPI app, routes, clarification + generation orchestration
 │   ├── models.py            # SQLAlchemy models (Case + clinical tables)
-│   ├── clinical_storage.py  # Read/write structured output (relational + JSON cache)
-│   ├── database.py          # Engine, SQLite FK pragma, init + migration
-│   ├── llm.py               # Claude prompt, JSON parsing, error handling
+│   ├── clinical_storage.py  # Read/write structured output (relational + JSON cache, batch reads)
+│   ├── database.py          # Engine, SQLite FK pragma, init, column migration, legacy JSON migration
+│   ├── llm.py               # Claude prompt, supplemental block, JSON parsing, error handling
 │   ├── requirements.txt
+│   ├── runtime.txt          # Python version hint for Railway
 │   └── .env.example
 ├── frontend/
+│   ├── vercel.json          # SPA fallback for client-side routes
+│   ├── .env.example         # VITE_API_URL for production
 │   ├── src/
 │   │   ├── App.tsx
 │   │   ├── api/client.ts        # axios wrapper + error surfacing
