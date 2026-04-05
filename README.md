@@ -304,15 +304,7 @@ App at http://localhost:5173. Vite proxies `/api` to port 8000 in dev. For produ
 - Paste the Vercel and Railway URLs into the [Live Demo](#live-demo) table at the top of this README.
 - If the UI shows CORS or network errors, verify **`VITE_API_URL`** matches the Railway URL exactly (scheme + host) and **`ALLOWED_ORIGINS`** on Railway includes your Vercel origin.
 
-### Monorepo alternative (Railway / Railpack from repo root)
-
-If the service **root directory** is the **repository root** (not `backend/`), builders such as **Railpack** need a Python project at the root or they fail with “could not determine how to build the app.” This repo includes:
-
-- **`requirements.txt`** at the repo root with `-r backend/requirements.txt` (so `pip install` pulls the real deps from `backend/`)
-- **`runtime.txt`** at the repo root (Python **3.11.x** patch release, aligned with `backend/runtime.txt`; pinned to a version **mise** ships as prebuilt on Linux—avoid `3.11.0`, which often has no precompiled binary)
-- **`Procfile`** at the repo root: `uvicorn main:app --app-dir backend --host 0.0.0.0 --port $PORT`
-
-**Recommended:** still set Railway **Root directory** to **`backend`** and use `backend/Procfile` if you can—simpler and avoids duplicate root shims. Use the root layout only when the platform insists on deploying from the monorepo root.
+**Backend is self-contained:** Python dependencies and runtime live only under **`backend/`** (`requirements.txt`, `runtime.txt`, `Procfile`). On **Railway** (and similar hosts), set the service **Root directory** to **`backend`** so the builder sees a normal Python app and `uvicorn main:app` runs from that folder. Deploying from the **repository root** without extra config is not supported—use **`backend`** as the service root.
 
 ---
 
@@ -384,18 +376,15 @@ I **avoided overfitting to Case A** by **not** adding rules that require copying
 
 ```
 ahmc-hpi/
-├── Procfile                 # Railway from repo root: `--app-dir backend`
-├── requirements.txt         # Root shim: `-r backend/requirements.txt` (Railpack / root deploys)
-├── runtime.txt              # Python version when deploying from repo root
 ├── backend/
-│   ├── Procfile             # Railway with root directory `backend/`: uvicorn on $PORT
+│   ├── Procfile             # Railway: uvicorn on $PORT (service root = backend/)
 │   ├── main.py              # FastAPI app, routes, clarification + generation orchestration
 │   ├── models.py            # SQLAlchemy models (Case + clinical tables)
 │   ├── clinical_storage.py  # Read/write structured output (relational + JSON cache, batch reads)
 │   ├── database.py          # Engine, SQLite FK pragma, init, column migration, legacy JSON migration
 │   ├── llm.py               # Claude prompt, supplemental block, JSON parsing, error handling
-│   ├── requirements.txt
-│   ├── runtime.txt          # Python version hint for Railway
+│   ├── requirements.txt     # Python deps (set deploy root to `backend/` on Railway, etc.)
+│   ├── runtime.txt          # Python version for Railway / mise (e.g. python-3.11.9)
 │   └── .env.example
 ├── frontend/
 │   ├── vercel.json          # SPA fallback for client-side routes
