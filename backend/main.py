@@ -20,11 +20,15 @@ load_dotenv()
 app = FastAPI(title="AHMC Clinical HPI Generator", version="1.0.0")
 
 allowed_origins_env = os.getenv("ALLOWED_ORIGINS", "http://localhost:5173,http://localhost:3000")
-allowed_origins = [o.strip() for o in allowed_origins_env.split(",")]
+allowed_origins = [o.strip() for o in allowed_origins_env.split(",") if o.strip()]
+# Optional: match any Vercel preview/share URL so you do not update Railway on every new deployment hash.
+# Example: ^https://.*\.vercel\.app$
+allowed_origin_regex = os.getenv("ALLOWED_ORIGINS_REGEX", "").strip() or None
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

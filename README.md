@@ -231,6 +231,7 @@ API docs at http://localhost:8000/docs
 | `MIN_FOLLOW_UP_QUESTIONS` | No | Default: **2**. The optional “missing info” question UI only appears when the model returns at least this many follow-up questions; otherwise gaps stay in `uncertainties` and generation completes normally. |
 | `DATABASE_URL` | No | Default: `sqlite:///./cases.db` |
 | `ALLOWED_ORIGINS` | No | Default includes localhost:5173 and localhost:3000 |
+| `ALLOWED_ORIGINS_REGEX` | No | Optional. E.g. `^https://.*\.vercel\.app$` so any `*.vercel.app` preview (including [Vercel share links](https://vercel.com/docs/deployments/sharing-deployments)) is allowed without listing every preview hash. |
 
 ### Frontend
 
@@ -260,7 +261,7 @@ App at http://localhost:5173. Vite proxies `/api` to port 8000 in dev. For produ
 | FastAPI API | [Railway](https://railway.app) | Simple Python deploy, `PORT`, HTTPS URL |
 | React SPA | [Vercel](https://vercel.com) | Vite build, global CDN, SPA routing via `frontend/vercel.json` |
 
-**CORS:** The browser loads the UI from Vercel and calls the API on another origin, so the backend **must** list your Vercel URL in **`ALLOWED_ORIGINS`** (comma-separated if you add preview URLs later).
+**CORS:** The browser loads the UI from Vercel and calls the API on another origin. Set **`ALLOWED_ORIGINS`** to your exact production URL(s), comma-separated. For **every new preview deployment** Vercel uses a different subdomain (`…-hash-sara-kazs-projects.vercel.app`); either add each origin to **`ALLOWED_ORIGINS`** or set **`ALLOWED_ORIGINS_REGEX`** to `^https://.*\.vercel\.app$` on Railway (demo convenience). **`?_vercel_share=…`** is only for opening the preview in the browser; CORS uses the **origin** (`https://hostname.vercel.app`), not the query string.
 
 **Database:** The default **`DATABASE_URL`** is SQLite (`cases.db` in the service working directory). It is fine for a demo; data can reset if the container is redeployed or replaced. For durable storage, point **`DATABASE_URL`** at a managed Postgres and add a driver (e.g. `psycopg[binary]`) — SQLAlchemy already supports it.
 
@@ -279,7 +280,8 @@ App at http://localhost:5173. Vite proxies `/api` to port 8000 in dev. For produ
    | Name | Value |
    |------|--------|
    | `ANTHROPIC_API_KEY` | Your key from [Anthropic Console](https://console.anthropic.com/settings/keys) (no quotes). |
-   | `ALLOWED_ORIGINS` | Your Vercel app URL, e.g. `https://ahmc-hpi.vercel.app` — add **after** step 2 below if needed, then redeploy. |
+   | `ALLOWED_ORIGINS` | Production URL(s), e.g. `https://ahmc-hpi-generator.vercel.app` (comma-separated list, no spaces). |
+   | `ALLOWED_ORIGINS_REGEX` | *(Optional)* `^https://.*\.vercel\.app$` — allows **any** Vercel preview/share URL without updating Railway each time. |
 
    Optional: `ANTHROPIC_MODEL`, `ANTHROPIC_MAX_TOKENS`, `MIN_FOLLOW_UP_QUESTIONS`, `DATABASE_URL`.
 
@@ -308,7 +310,9 @@ App at http://localhost:5173. Vite proxies `/api` to port 8000 in dev. For produ
 ### 3. After deploy
 
 - Paste the Vercel and Railway URLs into the [Live Demo](#live-demo) table at the top of this README.
-- If the UI shows CORS or network errors, verify **`VITE_API_URL`** matches the Railway URL exactly (scheme + host) and **`ALLOWED_ORIGINS`** on Railway includes your Vercel origin.
+- If the UI shows CORS or network errors: **`VITE_API_URL`** on Vercel must be set for **Production** (and redeploy); Railway **`ALLOWED_ORIGINS`** must include the exact origin you open, **or** set **`ALLOWED_ORIGINS_REGEX`** to `^https://.*\.vercel\.app$` and redeploy the backend.
+
+**Vercel share links** (URLs with `?_vercel_share=…`) still send the same **Origin** as the host without the query string — the regex above covers all `*.vercel.app` previews for demos.
 
 **Backend is self-contained:** Python dependencies and runtime live only under **`backend/`** (`requirements.txt`, `runtime.txt`, `Procfile`). On **Railway** (and similar hosts), set the service **Root directory** to **`backend`** so the builder sees a normal Python app and `uvicorn main:app` runs from that folder. Deploying from the **repository root** without extra config is not supported—use **`backend`** as the service root.
 
